@@ -5,6 +5,7 @@ use crate::{
         command::Command, handle::PartitionHandle, state::PartitionState, writer::PartitionWriter,
     },
     record::Record,
+    segment::metadata::RecordLocation,
 };
 
 use arc_swap::ArcSwap;
@@ -36,16 +37,16 @@ impl Partition {
         rx.await.unwrap();
     }
 
-    // TODO: define what should be read
-    // for now we can return physical position
-    fn find_pos(&self) -> u64 {
-        0
+    fn find_pos(&self, offset: u64) -> Option<RecordLocation> {
+        self.handle.find(offset)
     }
 
-    fn new(id: u32, base_offset: u64) -> Self {
+    fn new(topic_id: String, id: u32, base_offset: u64) -> Self {
+        let base_dir = format!("{}-{}", topic_id, id);
+
         let (tx, rx) = channel(1_000);
         let state = Arc::new(ArcSwap::from_pointee(PartitionState::new(base_offset)));
-        let mut writer = PartitionWriter::new(rx, state.clone());
+        let mut writer = PartitionWriter::new(rx, base_dir, state.clone()).unwrap();
         let join = tokio::spawn(async move {
             writer.run().await;
         });

@@ -25,7 +25,7 @@ impl PartitionHandle {
         self.tx.send(c).await
     }
 
-    pub fn read(&self, offset: u64) -> Option<RecordLocation> {
+    pub fn find(&self, offset: u64) -> Option<RecordLocation> {
         self.state.load_full().find_pos(offset)
     }
 }

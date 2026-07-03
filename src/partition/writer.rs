@@ -11,7 +11,7 @@ use crate::segment::options::SegmentOptions;
 
 pub struct PartitionWriter {
     rx: mpsc::Receiver<Command>,
-    base_dir: &'static str,
+    base_dir: String,
 
     // mutable data
     active_segment: ActiveSegment,
@@ -25,17 +25,19 @@ pub struct PartitionWriter {
 impl PartitionWriter {
     pub fn new(
         rx: mpsc::Receiver<Command>,
-        base_dir: &'static str,
+        base_dir: String,
         snapshot: Arc<ArcSwap<PartitionState>>,
     ) -> io::Result<Self> {
         let log_end_offset = 1;
         let high_watermark = 0;
 
+        let cloned = base_dir.clone();
+
         Ok(Self {
             rx,
             base_dir,
             active_segment: ActiveSegment::new(SegmentOptions::with_defaults(
-                base_dir,
+                &cloned,
                 log_end_offset,
             ))?,
             log_end_offset,
