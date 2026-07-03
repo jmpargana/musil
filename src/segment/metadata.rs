@@ -1,4 +1,8 @@
-use std::{fs::File, os::unix::fs::FileExt, sync::atomic::AtomicU64};
+use std::{
+    fs::File,
+    os::unix::fs::FileExt,
+    sync::{Arc, atomic::AtomicU64},
+};
 
 use memmap::{Mmap, MmapOptions};
 
@@ -6,14 +10,15 @@ const INDEX_ENTRY_SIZE: usize = 16; // (u64 offset + u64 position)
 
 pub type RecordLocation = u64;
 
+#[derive(Clone)]
 pub struct Segment {
     pub base_offset: u64,
-    log: File,
-    index: Mmap,
 
-    // TODO: tricky, not sure how to solve this. We only need this at the end
-    index_count: usize,
-    pub size: usize, // TODO: why is it AtomicU64?
+    log: Arc<File>,
+    index: Arc<Mmap>,
+
+    pub index_count: usize,
+    pub size: usize,
 }
 
 impl Segment {
@@ -22,8 +27,8 @@ impl Segment {
 
         Self {
             base_offset,
-            log,
-            index,
+            log: Arc::new(log),
+            index: Arc::new(index),
             index_count: 0,
             size: 0,
         }
@@ -77,5 +82,15 @@ impl Segment {
         }
 
         Some(pos)
+    }
+
+    pub fn with_metadata(&self, index_count: usize, size: usize) -> Arc<Self> {
+        Arc::new(Self {
+            base_offset: self.base_offset,
+            log: self.log.clone(),
+            index: self.index.clone(),
+            size,
+            index_count,
+        })
     }
 }

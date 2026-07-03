@@ -22,7 +22,7 @@ pub struct ActiveSegment {
 
     index_write_pos: usize,
 
-    // this might need to be changed inside segment
+    pub size: usize,
     index_count: usize,
 
     bytes_since_last_index: usize,
@@ -73,6 +73,7 @@ impl ActiveSegment {
             index_file,
             index_write_pos: 0,
             index_count: 0,
+            size: 0,
             bytes_since_last_index: opts.index_interval_bytes,
             index_threshold_bytes: opts.index_interval_bytes,
         })
@@ -104,6 +105,7 @@ impl ActiveSegment {
         }
 
         // TODO: should return record size or total?
+        self.size += buf.len() + 4;
         Ok(buf.len() + 4)
     }
 
@@ -111,8 +113,10 @@ impl ActiveSegment {
         self.segment.clone().find_pos(target_offset)
     }
 
-    pub fn get_immutable(&self) -> Arc<Segment> {
-        self.segment.clone()
+    pub fn publish(&mut self) -> Arc<Segment> {
+        let new = self.segment.with_metadata(self.index_count, self.size);
+        self.segment = new.clone();
+        new
     }
 }
 

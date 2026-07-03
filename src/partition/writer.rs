@@ -12,9 +12,12 @@ use crate::segment::options::SegmentOptions;
 pub struct PartitionWriter {
     rx: mpsc::Receiver<Command>,
     base_dir: String,
+    segment_bytes: usize,
 
     // mutable data
-    active_segment: ActiveSegment,
+    active: ActiveSegment,
+
+    // TODO: actually this data should be inside the partition, because it's meant to be rolled as we append new stuff
     log_end_offset: u64,
     high_watermark: u64,
 
@@ -36,10 +39,7 @@ impl PartitionWriter {
         Ok(Self {
             rx,
             base_dir,
-            active_segment: ActiveSegment::new(SegmentOptions::with_defaults(
-                &cloned,
-                log_end_offset,
-            ))?,
+            active: ActiveSegment::new(SegmentOptions::with_defaults(&cloned, log_end_offset))?,
             log_end_offset,
             high_watermark,
             snapshot,
@@ -52,19 +52,31 @@ impl PartitionWriter {
                 Command::Append { mut record, done } => {
                     record.add_offset(self.log_end_offset);
                     // TODO: handle error
-                    self.active_segment.append(record).unwrap();
+                    self.active.append(record).unwrap();
+
                     self.log_end_offset += 1;
 
-                    if self.active_segment.is_full() {
-                        let current = self.snapshot.load_full();
-                        current.push(self.active_segment.get_immutable());
-                        self.snapshot.store(current);
-                        self.active_segment = ActiveSegment::new(SegmentOptions::with_defaults(
+                    // TODO: handle high_watermark
+
+                    let state = self.snapshot.load_full();
+
+                    let new_state = if self.active.size >= self.segment_bytes {
+                        let mut active = ActiveSegment::new(SegmentOptions::with_defaults(
                             &self.base_dir,
                             self.log_end_offset,
                         ))
                         .unwrap();
-                    }
+                        state.roll(active.publish(), state.log_end_offset, state.high_watermark)
+                    } else {
+                        state.replace_active(
+                            self.active.publish(),
+                            state.log_end_offset + 1,
+                            state.high_watermark,
+                        )
+                    };
+
+                    self.snapshot.store(new_state);
+
                     done.send(()).unwrap();
                 }
                 Command::Shutdown => {
