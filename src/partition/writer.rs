@@ -29,17 +29,25 @@ impl PartitionWriter {
     pub fn new(
         rx: mpsc::Receiver<Command>,
         base_dir: String,
+        segment_bytes: usize,
         snapshot: Arc<ArcSwap<PartitionState>>,
     ) -> io::Result<Self> {
         let log_end_offset = 1;
         let high_watermark = 0;
 
         let cloned = base_dir.clone();
+        let mut active =
+            ActiveSegment::new(SegmentOptions::with_defaults(&cloned, log_end_offset))?;
+        let state = snapshot.load_full();
+
+        let mut segments = state.segments.as_ref().to_vec();
+        segments.push(active.publish());
 
         Ok(Self {
             rx,
             base_dir,
-            active: ActiveSegment::new(SegmentOptions::with_defaults(&cloned, log_end_offset))?,
+            active,
+            segment_bytes,
             log_end_offset,
             high_watermark,
             snapshot,
@@ -58,24 +66,31 @@ impl PartitionWriter {
 
                     // TODO: handle high_watermark
 
+                    let current_active = self.active.publish();
                     let state = self.snapshot.load_full();
 
-                    let new_state = if self.active.size >= self.segment_bytes {
-                        let mut active = ActiveSegment::new(SegmentOptions::with_defaults(
+                    let mut segments = state.segments.as_ref().to_vec();
+                    *segments.last_mut().unwrap() = current_active;
+
+                    if self.active.size >= self.segment_bytes {
+                        let mut new_active = ActiveSegment::new(SegmentOptions::with_defaults(
                             &self.base_dir,
                             self.log_end_offset,
                         ))
                         .unwrap();
-                        state.roll(active.publish(), state.log_end_offset, state.high_watermark)
-                    } else {
-                        state.replace_active(
-                            self.active.publish(),
-                            state.log_end_offset + 1,
-                            state.high_watermark,
-                        )
-                    };
 
-                    self.snapshot.store(new_state);
+                        segments.push(new_active.publish());
+
+                        self.active = new_active;
+                    }
+
+                    let next = Arc::new(PartitionState {
+                        segments: segments.into(),
+                        high_watermark: self.high_watermark,
+                        log_end_offset: self.log_end_offset,
+                    });
+
+                    self.snapshot.store(next);
 
                     done.send(()).unwrap();
                 }

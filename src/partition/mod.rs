@@ -16,6 +16,8 @@ pub mod handle;
 pub mod state;
 pub mod writer;
 
+const DEFAULT_SEGMENT_BYTES: usize = 1 << 20;
+
 pub struct Partition {
     id: u32,
     handle: PartitionHandle,
@@ -46,7 +48,8 @@ impl Partition {
 
         let (tx, rx) = channel(1_000);
         let state = Arc::new(ArcSwap::from_pointee(PartitionState::new(base_offset)));
-        let mut writer = PartitionWriter::new(rx, base_dir, state.clone()).unwrap();
+        let mut writer =
+            PartitionWriter::new(rx, base_dir, DEFAULT_SEGMENT_BYTES, state.clone()).unwrap();
         let join = tokio::spawn(async move {
             writer.run().await;
         });
