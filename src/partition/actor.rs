@@ -9,7 +9,7 @@ use crate::partition::state::PartitionState;
 use crate::segment::active::ActiveSegment;
 use crate::segment::options::SegmentOptions;
 
-pub struct PartitionWriter {
+pub struct PartitionActor {
     rx: mpsc::Receiver<Command>,
     base_dir: String,
     segment_bytes: usize,
@@ -25,7 +25,7 @@ pub struct PartitionWriter {
     snapshot: Arc<ArcSwap<PartitionState>>,
 }
 
-impl PartitionWriter {
+impl PartitionActor {
     pub fn new(
         rx: mpsc::Receiver<Command>,
         base_dir: String,
@@ -42,6 +42,14 @@ impl PartitionWriter {
 
         let mut segments = state.segments.as_ref().to_vec();
         segments.push(active.publish());
+
+        let next = Arc::new(PartitionState {
+            segments: segments.into(),
+            high_watermark,
+            log_end_offset,
+        });
+
+        snapshot.store(next);
 
         Ok(Self {
             rx,
@@ -64,7 +72,8 @@ impl PartitionWriter {
 
                     self.log_end_offset += 1;
 
-                    // TODO: handle high_watermark
+                    // TODO: handle syncing
+                    self.high_watermark += 1;
 
                     let current_active = self.active.publish();
                     let state = self.snapshot.load_full();

@@ -16,6 +16,7 @@ pub struct PartitionState {
     pub high_watermark: u64,
 }
 
+// bug: subtraction overflow
 impl PartitionState {
     pub fn new(base_offset: u64) -> Self {
         Self {
@@ -26,9 +27,13 @@ impl PartitionState {
     }
 
     pub fn find_pos(&self, offset: u64) -> Option<RecordLocation> {
+        if offset > self.high_watermark {
+            return None;
+        }
         let idx = self
             .segments
             .partition_point(|segment| segment.base_offset <= offset);
-        self.segments[idx].find_pos(offset)
+        // FIXME: something feels off about this
+        self.segments[idx - 1].find_pos(offset)
     }
 }

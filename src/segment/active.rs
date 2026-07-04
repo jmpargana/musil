@@ -1,11 +1,12 @@
-use memmap::MmapOptions;
 use std::{
-    fs::{File, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::{self, BufWriter, Read, Write},
     os::unix::fs::FileExt,
     path::Path,
     sync::Arc,
 };
+
+use memmap::MmapOptions;
 
 use crate::{
     record::Record,
@@ -32,6 +33,8 @@ pub struct ActiveSegment {
 impl ActiveSegment {
     pub fn new(opts: SegmentOptions) -> io::Result<Self> {
         let base_path = Path::new(opts.base_dir);
+
+        fs::create_dir_all(base_path)?;
 
         let log_path = base_path.join(format!("{:020}.log", opts.base_offset));
         let index_path = base_path.join(format!("{:020}.index", opts.base_offset));
