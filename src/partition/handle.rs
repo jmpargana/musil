@@ -11,7 +11,7 @@ use crate::{
 #[derive(Clone)]
 pub struct PartitionHandle {
     tx: mpsc::Sender<Command>,
-    state: Arc<ArcSwap<PartitionState>>,
+    pub state: Arc<ArcSwap<PartitionState>>,
 }
 impl PartitionHandle {
     pub(crate) fn new(

@@ -104,7 +104,10 @@ mod tests {
             .to_str()
             .unwrap()
             .to_string();
-        let cfg = PartitionConfigBuilder::default().build().unwrap();
+        let cfg = PartitionConfigBuilder::default()
+            .segment_bytes(3)
+            .build()
+            .unwrap();
         let partition = Partition::with_config("test".to_string(), 0, dir, cfg);
         let record = Record::new(b"hello", b"world");
 
@@ -113,7 +116,7 @@ mod tests {
 
         partition.append(record).await;
 
-        let offset = partition.find_pos(1);
-        assert!(offset.is_some());
+        let state = partition.handle.state.load_full();
+        assert_eq!(state.segments.len(), 2);
     }
 }
