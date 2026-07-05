@@ -10,7 +10,7 @@ use memmap::MmapOptions;
 
 use crate::{
     record::Record,
-    segment::{metadata::Segment, options::SegmentOptions},
+    segment::{metadata::Segment, options::SegmentConfig},
 };
 
 const INDEX_ENTRY_SIZE: usize = 16; // (u64 offset + u64 position)
@@ -31,8 +31,8 @@ pub struct ActiveSegment {
 }
 
 impl ActiveSegment {
-    pub fn new(opts: SegmentOptions) -> io::Result<Self> {
-        let base_path = Path::new(opts.base_dir);
+    pub fn new(opts: SegmentConfig) -> io::Result<Self> {
+        let base_path = Path::new(&opts.base_dir);
 
         fs::create_dir_all(base_path)?;
 
@@ -127,16 +127,21 @@ impl ActiveSegment {
 mod tests {
     use std::fs::read;
 
+    use crate::segment::options::SegmentConfigBuilder;
+
     use super::*;
 
     #[test]
     fn creates_correct_file_0() {
         let dir = tempdir::TempDir::new("./random").unwrap();
-        let _ = ActiveSegment::new(SegmentOptions::with_defaults(
-            dir.path().to_str().unwrap(),
-            0,
-        ))
-        .unwrap();
+
+        let cfg = SegmentConfigBuilder::default()
+            .base_dir(dir.path().to_str().unwrap().to_string())
+            .base_offset(0)
+            .build()
+            .unwrap();
+
+        let _ = ActiveSegment::new(cfg).unwrap();
 
         let mut files = dir.path().read_dir().unwrap();
         assert!(files.any(|f| f.unwrap().file_name() == "00000000000000000000.log"));
@@ -146,11 +151,12 @@ mod tests {
     #[test]
     fn creates_correct_file_offset() {
         let dir = tempdir::TempDir::new("./random").unwrap();
-        let _ = ActiveSegment::new(SegmentOptions::with_defaults(
-            dir.path().to_str().unwrap(),
-            1230,
-        ))
-        .unwrap();
+        let cfg = SegmentConfigBuilder::default()
+            .base_dir(dir.path().to_str().unwrap().to_string())
+            .base_offset(1230)
+            .build()
+            .unwrap();
+        let _ = ActiveSegment::new(cfg).unwrap();
 
         let mut files = dir.path().read_dir().unwrap();
         assert!(files.any(|f| f.unwrap().file_name() == "00000000000000001230.log"));
@@ -160,11 +166,13 @@ mod tests {
     #[test]
     fn appends_size_to_empty_log_file() {
         let dir = tempdir::TempDir::new("./random").unwrap();
-        let mut seg = ActiveSegment::new(SegmentOptions::with_defaults(
-            dir.path().to_str().unwrap(),
-            0,
-        ))
-        .unwrap();
+        let cfg = SegmentConfigBuilder::default()
+            .base_dir(dir.path().to_str().unwrap().to_string())
+            .base_offset(0)
+            .build()
+            .unwrap();
+
+        let mut seg = ActiveSegment::new(cfg).unwrap();
 
         let mut record = Record::new(b"hello", b"world");
         record.add_offset(1);
@@ -184,11 +192,13 @@ mod tests {
     #[test]
     fn appends_creates_index_file_at_start() {
         let dir = tempdir::TempDir::new("./random").unwrap();
-        let mut seg = ActiveSegment::new(SegmentOptions::with_defaults(
-            dir.path().to_str().unwrap(),
-            0,
-        ))
-        .unwrap();
+        let cfg = SegmentConfigBuilder::default()
+            .base_dir(dir.path().to_str().unwrap().to_string())
+            .base_offset(0)
+            .build()
+            .unwrap();
+
+        let mut seg = ActiveSegment::new(cfg).unwrap();
 
         let mut record = Record::new(b"hello", b"world");
         record.add_offset(1);

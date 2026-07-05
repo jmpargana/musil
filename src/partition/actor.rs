@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use crate::partition::command::Command;
 use crate::partition::state::PartitionState;
 use crate::segment::active::ActiveSegment;
-use crate::segment::options::SegmentOptions;
+use crate::segment::options::{SegmentConfig, SegmentConfigBuilder};
 
 pub struct PartitionActor {
     rx: mpsc::Receiver<Command>,
@@ -36,8 +36,15 @@ impl PartitionActor {
         let high_watermark = 0;
 
         let cloned = base_dir.clone();
-        let mut active =
-            ActiveSegment::new(SegmentOptions::with_defaults(&cloned, log_end_offset))?;
+
+        let cfg = SegmentConfigBuilder::default()
+            .base_dir(cloned.clone())
+            .base_offset(log_end_offset)
+            .segment_bytes(segment_bytes)
+            .build()
+            .unwrap();
+
+        let mut active = ActiveSegment::new(cfg)?;
         let state = snapshot.load_full();
 
         let mut segments = state.segments.as_ref().to_vec();
@@ -82,11 +89,13 @@ impl PartitionActor {
                     *segments.last_mut().unwrap() = current_active;
 
                     if self.active.size >= self.segment_bytes {
-                        let mut new_active = ActiveSegment::new(SegmentOptions::with_defaults(
-                            &self.base_dir,
-                            self.log_end_offset,
-                        ))
-                        .unwrap();
+                        let cfg = SegmentConfigBuilder::default()
+                            .base_dir(self.base_dir.to_string())
+                            .base_offset(self.log_end_offset)
+                            .build()
+                            .unwrap();
+
+                        let mut new_active = ActiveSegment::new(cfg).unwrap();
 
                         segments.push(new_active.publish());
 

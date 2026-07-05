@@ -1,5 +1,6 @@
 use std::{mem, sync::Arc};
 
+use derive_builder::Builder;
 use tokio::sync::mpsc;
 
 use crate::{
@@ -16,18 +17,19 @@ pub struct PartitionState {
     pub high_watermark: u64,
 }
 
+// TODO: partition should always start with 0
 // bug: subtraction overflow
 impl PartitionState {
-    pub fn new(base_offset: u64) -> Self {
+    pub fn new() -> Self {
         Self {
             segments: Arc::new(vec![]),
-            log_end_offset: base_offset,
-            high_watermark: base_offset - 1,
+            log_end_offset: 0,
+            high_watermark: 0,
         }
     }
 
     pub fn find_pos(&self, offset: u64) -> Option<RecordLocation> {
-        if offset > self.high_watermark {
+        if offset >= self.high_watermark {
             return None;
         }
         let idx = self
