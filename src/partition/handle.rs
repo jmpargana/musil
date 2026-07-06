@@ -4,8 +4,7 @@ use arc_swap::ArcSwap;
 use tokio::sync::mpsc::{self, error::SendError};
 
 use crate::{
-    partition::{command::Command, state::PartitionState},
-    segment::metadata::RecordLocation,
+    command::Command, partition::state::PartitionState, segment::metadata::RecordLocation,
 };
 
 #[derive(Clone)]

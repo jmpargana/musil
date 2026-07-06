@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
 use crate::topic::Topic;
 
 pub struct Broker {
-    topics: dashmap::DashMap<String, Topic>
+    topics: dashmap::DashMap<String, Topic>,
 }

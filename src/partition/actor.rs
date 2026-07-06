@@ -4,7 +4,7 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use tokio::sync::mpsc;
 
-use crate::partition::command::Command;
+use crate::command::Command;
 use crate::partition::state::PartitionState;
 use crate::segment::active::ActiveSegment;
 use crate::segment::options::{SegmentConfig, SegmentConfigBuilder};
@@ -23,6 +23,8 @@ pub struct PartitionActor {
 
     // TODO: split between PartitionState which has SegmentMetadata and mutable segments
     snapshot: Arc<ArcSwap<PartitionState>>,
+    // replication
+    replication_tx: mpsc::Sender<Command>,
 }
 
 impl PartitionActor {
@@ -31,6 +33,7 @@ impl PartitionActor {
         base_dir: String,
         segment_bytes: usize,
         snapshot: Arc<ArcSwap<PartitionState>>,
+        replication_tx: mpsc::Sender<Command>,
     ) -> io::Result<Self> {
         let log_end_offset = 1;
         let high_watermark = 0;
@@ -50,12 +53,11 @@ impl PartitionActor {
         let mut segments = state.segments.as_ref().to_vec();
         segments.push(active.publish());
 
-        let next = Arc::new(PartitionState {
-            segments: segments.into(),
-            high_watermark,
+        let next = Arc::new((*state).clone().consume(
+            segments.into(),
             log_end_offset,
-        });
-
+            high_watermark,
+        ));
         snapshot.store(next);
 
         Ok(Self {
@@ -66,6 +68,7 @@ impl PartitionActor {
             log_end_offset,
             high_watermark,
             snapshot,
+            replication_tx,
         })
     }
 
@@ -75,12 +78,9 @@ impl PartitionActor {
                 Command::Append { mut record, done } => {
                     record.add_offset(self.log_end_offset);
                     // TODO: handle error
-                    self.active.append(record).unwrap();
+                    self.active.append(record.clone()).unwrap();
 
                     self.log_end_offset += 1;
-
-                    // TODO: handle syncing
-                    self.high_watermark += 1;
 
                     let current_active = self.active.publish();
                     let state = self.snapshot.load_full();
@@ -102,10 +102,28 @@ impl PartitionActor {
                         self.active = new_active;
                     }
 
+                    for replica in state.replicas.iter() {
+                        let replica = replica.clone();
+                        self.replication_tx
+                            .send(Command::ReplicaRequest {
+                                broker_id: replica.broker_id,
+                                record: record.clone(),
+                            })
+                            .await
+                            .unwrap();
+                    }
+
+                    if state.replicas.is_empty() {
+                        self.high_watermark += 1;
+                    }
+
+                    // TODO: handle replication for acks=all
+
                     let next = Arc::new(PartitionState {
                         segments: segments.into(),
                         high_watermark: self.high_watermark,
                         log_end_offset: self.log_end_offset,
+                        replicas: state.replicas.clone(),
                     });
 
                     self.snapshot.store(next);
@@ -115,6 +133,15 @@ impl PartitionActor {
                 Command::Shutdown => {
                     break;
                 }
+                // TODO: this needs to be tested
+                Command::ReplicaAck { broker_id, offset } => {
+                    let state = self.snapshot.load_full();
+                    let next = (*state).clone().ack_replica(broker_id, offset);
+                    let next = Arc::new(next);
+                    self.snapshot.store(next);
+                }
+                // FIXME: refactor, this should never be used here
+                Command::ReplicaRequest { broker_id, record } => todo!(),
             }
         }
     }

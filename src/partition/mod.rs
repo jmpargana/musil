@@ -1,8 +1,9 @@
 use std::{path::Path, sync::Arc};
 
 use crate::{
+    command::Command,
     partition::{
-        actor::PartitionActor, command::Command, config::PartitionConfig, handle::PartitionHandle,
+        actor::PartitionActor, config::PartitionConfig, handle::PartitionHandle,
         state::PartitionState,
     },
     record::Record,
@@ -10,10 +11,12 @@ use crate::{
 };
 
 use arc_swap::ArcSwap;
-use tokio::sync::{mpsc::channel, oneshot};
+use tokio::sync::{
+    mpsc::{self, channel},
+    oneshot,
+};
 
 pub mod actor;
-pub mod command;
 pub mod config;
 pub mod handle;
 pub mod state;
@@ -44,7 +47,14 @@ impl Partition {
         self.handle.find(offset)
     }
 
-    fn with_config(topic_id: String, id: u32, base_dir: String, config: PartitionConfig) -> Self {
+    // TODO: handle replicas
+    fn with_config(
+        topic_id: String,
+        id: u32,
+        base_dir: String,
+        replication_tx: mpsc::Sender<Command>,
+        config: PartitionConfig,
+    ) -> Self {
         let base_path = Path::new(&base_dir);
         let topic_partition_name = format!("{}-{}", topic_id, id);
         let base_dir = base_path
@@ -55,9 +65,15 @@ impl Partition {
             .to_string();
 
         let (tx, rx) = channel(config.channel_size);
-        let state = Arc::new(ArcSwap::from_pointee(PartitionState::new()));
-        let mut writer =
-            PartitionActor::new(rx, base_dir, config.segment_bytes, state.clone()).unwrap();
+        let state = Arc::new(ArcSwap::from_pointee(PartitionState::new(config.replicas)));
+        let mut writer = PartitionActor::new(
+            rx,
+            base_dir,
+            config.segment_bytes,
+            state.clone(),
+            replication_tx,
+        )
+        .unwrap();
         let join = tokio::spawn(async move {
             writer.run().await;
         });
@@ -77,6 +93,7 @@ mod tests {
 
     #[tokio::test]
     async fn write_reads() {
+        let (tx, _) = mpsc::channel(1);
         let dir = tempdir::TempDir::new("./")
             .unwrap()
             .path()
@@ -84,7 +101,7 @@ mod tests {
             .unwrap()
             .to_string();
         let cfg = PartitionConfigBuilder::default().build().unwrap();
-        let partition = Partition::with_config("test".to_string(), 0, dir, cfg);
+        let partition = Partition::with_config("test".to_string(), 0, dir, tx, cfg);
         let record = Record::new(b"hello", b"world");
 
         let offset = partition.find_pos(1);
@@ -98,6 +115,7 @@ mod tests {
 
     #[tokio::test]
     async fn giant_record_creates_new_segment() {
+        let (tx, _) = mpsc::channel(1);
         let dir = tempdir::TempDir::new("./")
             .unwrap()
             .path()
@@ -108,7 +126,7 @@ mod tests {
             .segment_bytes(3)
             .build()
             .unwrap();
-        let partition = Partition::with_config("test".to_string(), 0, dir, cfg);
+        let partition = Partition::with_config("test".to_string(), 0, dir, tx, cfg);
         let record = Record::new(b"hello", b"world");
 
         let offset = partition.find_pos(1);
