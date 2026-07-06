@@ -52,6 +52,8 @@ impl PartitionState {
             replica.log_end_offset = max(replica.log_end_offset, offset);
         }
 
+        self.high_watermark = replicas.iter().map(|r| r.log_end_offset).min().unwrap();
+
         self
     }
 

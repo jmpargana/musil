@@ -134,11 +134,16 @@ impl PartitionActor {
                     break;
                 }
                 // TODO: this needs to be tested
-                Command::ReplicaAck { broker_id, offset } => {
+                Command::ReplicaAck {
+                    broker_id,
+                    offset,
+                    done,
+                } => {
                     let state = self.snapshot.load_full();
                     let next = (*state).clone().ack_replica(broker_id, offset);
                     let next = Arc::new(next);
                     self.snapshot.store(next);
+                    done.send(()).unwrap();
                 }
                 // FIXME: refactor, this should never be used here
                 Command::ReplicaRequest { broker_id, record } => todo!(),

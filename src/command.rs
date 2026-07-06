@@ -14,6 +14,7 @@ pub enum Command {
     ReplicaAck {
         broker_id: String,
         offset: u64,
+        done: oneshot::Sender<()>,
     },
     ReplicaRequest {
         broker_id: String,
