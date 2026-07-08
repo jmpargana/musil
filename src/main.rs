@@ -3,8 +3,10 @@ use tokio::{
     net::TcpListener,
 };
 
+mod batch;
 mod broker;
 mod command;
+mod message;
 mod partition;
 mod record;
 mod replica;

@@ -1,6 +1,6 @@
 use tokio::sync::oneshot;
 
-use crate::record::Record;
+use crate::{batch::Batch, record::Record};
 
 // TODO: needs to be refactored into events for specific domains:
 // - partitionactor
@@ -10,6 +10,13 @@ pub enum Command {
     Append {
         record: Record,
         done: oneshot::Sender<()>,
+    },
+    AppendV2 {
+        batch: Batch,
+        done: oneshot::Sender<()>,
+    },
+    Fetch {
+        
     },
     ReplicaAck {
         broker_id: String,

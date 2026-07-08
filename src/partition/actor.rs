@@ -147,6 +147,8 @@ impl PartitionActor {
                 }
                 // FIXME: refactor, this should never be used here
                 Command::ReplicaRequest { broker_id, record } => todo!(),
+                Command::AppendV2 { batch, done } => todo!(),
+                Command::Fetch {} => todo!(),
             }
         }
     }
