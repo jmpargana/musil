@@ -19,3 +19,13 @@ impl TryFrom<u32> for Ack {
         }
     }
 }
+
+impl From<Ack> for u32 {
+    fn from(value: Ack) -> Self {
+        match value {
+            Ack::None => 0,
+            Ack::Leader => 1,
+            Ack::All => 2,
+        }
+    }
+}

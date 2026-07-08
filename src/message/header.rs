@@ -33,3 +33,12 @@ impl TryFrom<u32> for MessageApiKey {
         }
     }
 }
+
+impl From<MessageApiKey> for u32 {
+    fn from(value: MessageApiKey) -> Self {
+        match value {
+            MessageApiKey::Produce => 0,
+            MessageApiKey::Fetch => 1,
+        }
+    }
+}

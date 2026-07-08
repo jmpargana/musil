@@ -6,7 +6,10 @@ use tokio::{
     net::{TcpListener, TcpSocket, TcpStream},
 };
 
-use crate::{broker::Broker, message::parser::MessageParser};
+use crate::{
+    broker::Broker,
+    message::{Message, parser::MessageParser},
+};
 
 pub struct NetworkManager {
     broker: Arc<Broker>,
@@ -16,7 +19,6 @@ pub struct NetworkManager {
 pub struct Connection {
     stream: TcpStream,
     broker: Arc<Broker>,
-    parser: MessageParser,
 }
 
 impl NetworkManager {
@@ -27,16 +29,15 @@ impl NetworkManager {
             let mut conn = Connection {
                 stream,
                 broker: self.broker.clone(),
-                parser: MessageParser,
             };
             tokio::spawn(async move {
                 // FIXME: this is most likely not correct. How can we check the size of the request
                 let mut bytes = BytesMut::new();
                 conn.stream.read(&mut bytes).await.unwrap();
-                let msg = conn.parser.parse(bytes.freeze()).unwrap();
+                let msg = Message::decode(bytes.freeze()).unwrap();
                 let res = conn.broker.handle(msg).await.unwrap();
-                // TODO: encode response before writing
-                conn.stream.write_all(res).await.unwrap();
+                let bytes = res.encode();
+                conn.stream.write_all(&bytes).await.unwrap();
             });
         }
     }
