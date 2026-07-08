@@ -7,6 +7,7 @@ mod batch;
 mod broker;
 mod command;
 mod message;
+mod network;
 mod partition;
 mod record;
 mod replica;

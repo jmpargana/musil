@@ -1,6 +1,7 @@
 use std::{path::Path, sync::Arc};
 
 use crate::{
+    batch::Batch,
     command::Command,
     partition::{
         actor::PartitionActor, config::PartitionConfig, handle::PartitionHandle,
@@ -11,6 +12,7 @@ use crate::{
 };
 
 use arc_swap::ArcSwap;
+use bytes::Bytes;
 use tokio::sync::{
     mpsc::{self, channel},
     oneshot,
@@ -33,8 +35,10 @@ impl Partition {
         self.join.await.unwrap();
     }
 
+    pub async fn produce(&self, batch: Bytes) {}
+
     // TODO: respond based on ack
-    async fn append(&self, record: Record) {
+    pub async fn append(&self, record: Record) {
         let (tx, rx) = oneshot::channel();
         self.handle
             .send(Command::Append { record, done: tx })
@@ -43,7 +47,7 @@ impl Partition {
         rx.await.unwrap();
     }
 
-    fn find_pos(&self, offset: u64) -> Option<RecordLocation> {
+    pub fn find_pos(&self, offset: u64) -> Option<RecordLocation> {
         self.handle.find(offset)
     }
 

@@ -28,7 +28,7 @@ impl MessageParser {
         let api_version = buf.get_u32();
         let correlation_id = buf.get_u32();
 
-        let client_id_len = buf.get_u16();
+        let client_id_len = buf.get_i16();
         let client_id = if client_id_len >= 0 {
             Some(
                 String::from_utf8(buf.split_to(client_id_len as usize).to_vec())
@@ -112,6 +112,7 @@ mod tests {
 
     use super::*;
 
+    // TODO: refactor to use encoder, which will be needed before writing to network
     fn produce_message_bytes() -> Bytes {
         let mut buf = BytesMut::new();
 

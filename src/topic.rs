@@ -1,7 +1,7 @@
 use crate::partition::{Partition, handle::PartitionHandle};
 
-pub struct Topic {
-    id: String,
-    // TODO: might need an Arc here
-    partitions: Vec<Partition>,
+#[derive(Eq, PartialEq, Hash)]
+pub struct TopicPartition {
+    pub topic_id: String,
+    pub partition_id: u16,
 }

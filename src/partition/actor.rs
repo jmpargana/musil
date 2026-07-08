@@ -17,10 +17,6 @@ pub struct PartitionActor {
     // mutable data
     active: ActiveSegment,
 
-    // TODO: actually this data should be inside the partition, because it's meant to be rolled as we append new stuff
-    log_end_offset: u64,
-    high_watermark: u64,
-
     // TODO: split between PartitionState which has SegmentMetadata and mutable segments
     snapshot: Arc<ArcSwap<PartitionState>>,
     // replication
@@ -35,14 +31,11 @@ impl PartitionActor {
         snapshot: Arc<ArcSwap<PartitionState>>,
         replication_tx: mpsc::Sender<Command>,
     ) -> io::Result<Self> {
-        let log_end_offset = 1;
-        let high_watermark = 0;
-
         let cloned = base_dir.clone();
 
         let cfg = SegmentConfigBuilder::default()
             .base_dir(cloned.clone())
-            .base_offset(log_end_offset)
+            .base_offset(0)
             .segment_bytes(segment_bytes)
             .build()
             .unwrap();
@@ -53,11 +46,7 @@ impl PartitionActor {
         let mut segments = state.segments.as_ref().to_vec();
         segments.push(active.publish());
 
-        let next = Arc::new((*state).clone().consume(
-            segments.into(),
-            log_end_offset,
-            high_watermark,
-        ));
+        let next = Arc::new((*state).clone().consume(segments.into(), 1, 0));
         snapshot.store(next);
 
         Ok(Self {
@@ -65,8 +54,6 @@ impl PartitionActor {
             base_dir,
             active,
             segment_bytes,
-            log_end_offset,
-            high_watermark,
             snapshot,
             replication_tx,
         })
@@ -76,11 +63,15 @@ impl PartitionActor {
         while let Some(c) = self.rx.recv().await {
             match c {
                 Command::Append { mut record, done } => {
-                    record.add_offset(self.log_end_offset);
+                    let state = self.snapshot.load_full();
+                    let mut leo = state.log_end_offset;
+
+                    record.add_offset(leo);
+
                     // TODO: handle error
                     self.active.append(record.clone()).unwrap();
 
-                    self.log_end_offset += 1;
+                    leo += 1;
 
                     let current_active = self.active.publish();
                     let state = self.snapshot.load_full();
@@ -91,7 +82,7 @@ impl PartitionActor {
                     if self.active.size >= self.segment_bytes {
                         let cfg = SegmentConfigBuilder::default()
                             .base_dir(self.base_dir.to_string())
-                            .base_offset(self.log_end_offset)
+                            .base_offset(leo)
                             .build()
                             .unwrap();
 
@@ -113,16 +104,17 @@ impl PartitionActor {
                             .unwrap();
                     }
 
+                    let mut hw = state.high_watermark;
                     if state.replicas.is_empty() {
-                        self.high_watermark += 1;
+                        hw += 1;
                     }
 
                     // TODO: handle replication for acks=all
 
                     let next = Arc::new(PartitionState {
                         segments: segments.into(),
-                        high_watermark: self.high_watermark,
-                        log_end_offset: self.log_end_offset,
+                        high_watermark: hw,
+                        log_end_offset: leo,
                         replicas: state.replicas.clone(),
                     });
 
