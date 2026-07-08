@@ -34,21 +34,21 @@ impl Message {
             buf.copy_from_slice(client_id.as_bytes());
         }
 
-        match self.body {
+        match &self.body {
             MessageBody::Produce {
                 transactional_id,
                 acks,
                 timeout,
                 topics,
             } => {
-                buf.put_u64(transactional_id);
-                buf.put_u32(u32::from(acks));
+                buf.put_u64(*transactional_id);
+                buf.put_u32(u32::from(*acks));
 
                 // FIXME: should be millis instead of secs
                 buf.put_u64(timeout.as_secs());
 
                 buf.put_u16(topics.len() as u16);
-                for t in &topics {
+                for t in topics {
                     buf.put_u16(t.topic.len() as u16);
                     buf.copy_from_slice(t.topic.as_bytes());
 
@@ -61,6 +61,8 @@ impl Message {
                 }
             }
             MessageBody::FetchResponse => todo!(),
+            MessageBody::ProduceResponse => todo!(),
+            MessageBody::Fetch => todo!(),
         }
 
         buf.freeze()

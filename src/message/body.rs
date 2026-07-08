@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use derive_builder::Builder;
+
 use crate::message::{ack::Ack, produce::ProduceTopic};
 
 pub enum MessageBody {
@@ -9,5 +11,7 @@ pub enum MessageBody {
         timeout: Duration,
         topics: Vec<ProduceTopic>,
     },
+    ProduceResponse,
+    Fetch,
     FetchResponse,
 }

@@ -1,6 +1,9 @@
+use derive_builder::Builder;
+
 const HEADER_SIZE: usize = 16; // 4xu32
 
 // TODO: do I need Request or Response?
+#[derive(Builder)]
 pub struct MessageHeader {
     pub api_key: MessageApiKey,
     pub api_version: u32,

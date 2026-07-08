@@ -5,7 +5,11 @@ use std::{
 };
 
 use crate::{
-    message::{Message, body::MessageBody},
+    message::{
+        Message,
+        body::MessageBody,
+        header::{MessageHeader, MessageHeaderBuilder},
+    },
     partition::Partition,
     topic::TopicPartition,
 };
@@ -20,9 +24,9 @@ impl Broker {
         let res = match req.header.api_key {
             crate::message::header::MessageApiKey::Produce => {
                 if let MessageBody::Produce {
-                    transactional_id,
-                    acks,
-                    timeout,
+                    transactional_id: _,
+                    acks: _,
+                    timeout: _,
                     topics,
                 } = req.body
                 {
@@ -31,7 +35,7 @@ impl Broker {
                             let p = self
                                 .partitions
                                 .get(&TopicPartition {
-                                    topic_id: topic.topic,
+                                    topic_id: topic.topic.to_string(),
                                     partition_id: partition.partition_id,
                                 })
                                 // TODO: handle missing partition
@@ -41,6 +45,12 @@ impl Broker {
                             p.produce(partition.batch).await;
                         }
                     }
+                }
+                let header = MessageHeaderBuilder::default().build().unwrap();
+                Message {
+                    size: 0,
+                    header,
+                    body: MessageBody::FetchResponse,
                 }
             }
             crate::message::header::MessageApiKey::Fetch => todo!(),
