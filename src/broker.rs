@@ -53,7 +53,7 @@ impl Broker {
                     body: MessageBody::FetchResponse,
                 }
             }
-            crate::message::header::MessageApiKey::Fetch => todo!(),
+            crate::message::header::MessageApiKey::Fetch => {}
         };
         Ok(res)
     }

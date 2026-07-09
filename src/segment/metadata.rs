@@ -51,13 +51,13 @@ impl Segment {
             return vec![];
         };
 
-        let Ok(pos) = self.linear_search(req.fetch_offset, idx) else {
+        let Ok(mut pos) = self.linear_search(req.fetch_offset, idx) else {
             return vec![];
         };
 
         let batch = Batch::decode(&self.log, pos);
 
-        let record_iter = RecordIter {
+        let mut record_iter = RecordIter {
             bytes: &batch.records,
             pos: 0,
         };
@@ -67,24 +67,30 @@ impl Segment {
 
         let actual_batch_length = batch.batch_length - starting_pos as u32;
 
-        // linear search of batch until finding offset
-        // rebuild the batch but from the offset
+        let mut batches = vec![Batch {
+            base_offset: req.fetch_offset,
+            batch_length: actual_batch_length,
+            records_count: batch.records_count
+                - (req.fetch_offset as u32 - batch.base_offset as u32),
+            // TODO: start from starting_pos
+            records: batch.records,
+        }];
 
         // NOTE: Ideally full batches should not be copied into a response.
         // Instead a fd should be passed to the network layer, where `sendfile` syscall is invoked.
 
-        // continue reading batches until max_bytes are satisfied
-        // only first batch may exceed limit
-
-        //
-
-        PartitionResponse {
-            partition_index: -1,
-            error_code: -1,
-            high_watermark: -1,
-            log_start_offset: req.fetch_offset,
-            records,
+        // TODO: for sure there's a cleaner way of writing this code.
+        let mut total_bytes = actual_batch_length;
+        pos += 8 + batch.batch_length as u64;
+        while total_bytes < req.partition_max_bytes {
+            let batch = Batch::decode(&self.log, pos);
+            total_bytes += batch.batch_length;
+            if total_bytes < req.partition_max_bytes {
+                batches.push(batch);
+            }
         }
+
+        batches
     }
 
     #[deprecated(note = "use fetch instead")]
@@ -278,4 +284,25 @@ impl<'a> Iterator for RecordIter<'a> {
 
         Some((start, record))
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // TODO: implement these test cases.
+    #[test]
+    fn appends_total_amount_as_expected() {}
+    #[test]
+    fn finds_binary_search_correctly() {}
+    #[test]
+    fn finds_linear_search_correctly() {}
+    #[test]
+    fn finds_spot_inside_batch() {}
+    #[test]
+    fn returns_partial_batch() {}
+    #[test]
+    fn returns_batch_if_below_space() {}
+    #[test]
+    fn includes_more_batches_if_max_bytes() {}
 }

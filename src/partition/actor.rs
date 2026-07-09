@@ -125,6 +125,9 @@ impl PartitionActor {
                 // FIXME: refactor, this should never be used here
                 Command::ReplicaRequest { broker_id, record } => todo!(),
                 Command::AppendV2 { batch, done } => {
+                    // TODO: implement
+                    // self.active.append(record);
+
                     done.send(()).unwrap();
                 }
                 Command::Fetch {} => todo!(),

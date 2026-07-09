@@ -11,7 +11,10 @@ use memmap::MmapOptions;
 
 use crate::{
     batch::Batch,
-    message::{consumer::PartitionResponse, produce::ProducePartition},
+    message::{
+        consumer::{FetchPartition, PartitionResponse},
+        produce::ProducePartition,
+    },
     partition::Partition,
     record::Record,
     segment::{metadata::Segment, options::SegmentConfig},
@@ -111,8 +114,8 @@ impl ActiveSegment {
         Ok(())
     }
 
-    pub fn fetch(&self, partition_request: FetchPartition) -> PartitionResponse {
-        self.segment.clone().fetch(target_offset)
+    pub fn fetch(&self, partition_request: FetchPartition) -> Vec<Batch> {
+        self.segment.clone().fetch(partition_request)
     }
 
     #[deprecated(note = "use append_batch instead")]
