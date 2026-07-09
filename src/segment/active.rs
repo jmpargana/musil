@@ -6,9 +6,13 @@ use std::{
     sync::Arc,
 };
 
+use bytes::Bytes;
 use memmap::MmapOptions;
 
 use crate::{
+    batch::Batch,
+    message::{consumer::PartitionResponse, produce::ProducePartition},
+    partition::Partition,
     record::Record,
     segment::{metadata::Segment, options::SegmentConfig},
 };
@@ -82,6 +86,36 @@ impl ActiveSegment {
         })
     }
 
+    pub fn append_batch(&mut self, batch: Batch) -> io::Result<()> {
+        let log_pos = self.log_file.metadata()?.len();
+
+        // batch is already encoded
+        self.log_file.write_all(&batch.encode_header())?;
+        self.log_file.write_all(&batch.records)?;
+
+        // check if there's a new index
+        self.bytes_since_last_index += batch.batch_length as usize; // FIXME: does it include baseOffset and batchLength 32 + 64?
+
+        if self.bytes_since_last_index >= self.index_threshold_bytes {
+            let pos = self.index_write_pos;
+
+            self.index_file[pos..pos + 8].copy_from_slice(&batch.base_offset.to_le_bytes());
+            self.index_file[pos + 8..pos + 16].copy_from_slice(&log_pos.to_le_bytes());
+
+            self.index_write_pos += INDEX_ENTRY_SIZE;
+            self.index_count += 1;
+            self.bytes_since_last_index = 0;
+        }
+
+        self.size += batch.batch_length as usize;
+        Ok(())
+    }
+
+    pub fn fetch(&self, partition_request: FetchPartition) -> PartitionResponse {
+        self.segment.clone().fetch(target_offset)
+    }
+
+    #[deprecated(note = "use append_batch instead")]
     pub fn append(&mut self, record: Record) -> io::Result<usize> {
         let buf = record.encode();
 

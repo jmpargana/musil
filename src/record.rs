@@ -31,7 +31,11 @@ impl Record {
         buf
     }
 
-    pub fn decode(buf: &[u8]) -> io::Result<Self> {
+    pub fn decode(buf: &[u8]) -> io::Result<Record> {
+        Record::decode_raw(&buf).map(|it| it.0)
+    }
+
+    pub fn decode_raw(buf: &[u8]) -> io::Result<(Record, usize)> {
         let mut pos = 0;
 
         let offset = u64::from_le_bytes(buf[pos..pos + 8].try_into().unwrap());
@@ -51,12 +55,15 @@ impl Record {
 
         let value = buf[pos..pos + value_size].to_vec();
 
-        Ok(Record {
-            offset: Some(offset),
-            timestamp,
-            key,
-            value,
-        })
+        Ok((
+            Record {
+                offset: Some(offset),
+                timestamp,
+                key,
+                value,
+            },
+            pos,
+        ))
     }
 
     fn write_to<W: Write>(&self, writer: &mut W) -> io::Result<usize> {

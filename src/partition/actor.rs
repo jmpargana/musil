@@ -17,10 +17,8 @@ pub struct PartitionActor {
     // mutable data
     active: ActiveSegment,
 
-    // TODO: split between PartitionState which has SegmentMetadata and mutable segments
+    // immutable data
     snapshot: Arc<ArcSwap<PartitionState>>,
-    // replication
-    replication_tx: mpsc::Sender<Command>,
 }
 
 impl PartitionActor {
@@ -29,7 +27,6 @@ impl PartitionActor {
         base_dir: String,
         segment_bytes: usize,
         snapshot: Arc<ArcSwap<PartitionState>>,
-        replication_tx: mpsc::Sender<Command>,
     ) -> io::Result<Self> {
         let cloned = base_dir.clone();
 
@@ -55,7 +52,6 @@ impl PartitionActor {
             active,
             segment_bytes,
             snapshot,
-            replication_tx,
         })
     }
 
@@ -93,17 +89,6 @@ impl PartitionActor {
                         self.active = new_active;
                     }
 
-                    for replica in state.replicas.iter() {
-                        let replica = replica.clone();
-                        self.replication_tx
-                            .send(Command::ReplicaRequest {
-                                broker_id: replica.broker_id,
-                                record: record.clone(),
-                            })
-                            .await
-                            .unwrap();
-                    }
-
                     let mut hw = state.high_watermark;
                     if state.replicas.is_empty() {
                         hw += 1;
@@ -139,7 +124,9 @@ impl PartitionActor {
                 }
                 // FIXME: refactor, this should never be used here
                 Command::ReplicaRequest { broker_id, record } => todo!(),
-                Command::AppendV2 { batch, done } => todo!(),
+                Command::AppendV2 { batch, done } => {
+                    done.send(()).unwrap();
+                }
                 Command::Fetch {} => todo!(),
             }
         }

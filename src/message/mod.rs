@@ -8,6 +8,7 @@ use crate::message::{
 
 pub mod ack;
 pub mod body;
+pub mod consumer;
 pub mod header;
 pub mod parser;
 pub mod produce;

@@ -23,6 +23,7 @@ pub mod config;
 pub mod handle;
 pub mod state;
 
+// TODO: this struct might be removed all together. It's enough to create a handle
 pub struct Partition {
     id: u32,
     handle: PartitionHandle,
