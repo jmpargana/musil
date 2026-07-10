@@ -1,12 +1,13 @@
-use std::{collections::HashMap, io, time::Instant};
+use std::{collections::HashMap, io, sync::Arc, time::Instant};
 
 use crate::{
-    partition::Partition,
+    partition::handle::PartitionHandle,
     protocol::{
         Frame,
         body::FrameBody,
-        fetch::response::{
-            fetch_response::FetchResponse, topic_response::TopicResponse,
+        fetch::{
+            request::fetch_request::FetchRequest,
+            response::{fetch_response::FetchResponse, topic_response::TopicResponse},
         },
         produce::request::produce_request::ProduceRequest,
     },
@@ -15,12 +16,11 @@ use crate::{
 
 pub struct Broker {
     // TODO: needs to be behind Arc in case topics and partitions are dynamic, otherwise broker restart is needed
-    // FIXME: use PartitionHandle directly.
-    partitions: HashMap<TopicPartition, Partition>,
+    partitions: HashMap<TopicPartition, Arc<PartitionHandle>>,
 }
 
 impl Broker {
-    pub fn partition(&self, topic: &str, partition: u16) -> io::Result<&Partition> {
+    pub fn partition(&self, topic: &str, partition: u16) -> io::Result<&Arc<PartitionHandle>> {
         self.partitions
             .get(&TopicPartition {
                 topic_id: topic.to_owned(),
@@ -29,7 +29,6 @@ impl Broker {
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "unknown partition"))
     }
 
-    // TODO: maybe internal handler returns body, this wraps in Frame?
     pub async fn handle(&self, req: Frame) -> io::Result<Frame> {
         match &req.body {
             FrameBody::Fetch(body) => self.handle_fetch(&req, body).await,
@@ -38,11 +37,7 @@ impl Broker {
         }
     }
 
-    async fn handle_fetch(
-        &self,
-        req: &Frame,
-        body: &crate::protocol::fetch::request::fetch_request::FetchRequest,
-    ) -> io::Result<Frame> {
+    async fn handle_fetch(&self, req: &Frame, body: &FetchRequest) -> io::Result<Frame> {
         let now = Instant::now();
         let mut topic_responses = Vec::new();
 
@@ -70,9 +65,7 @@ impl Broker {
 
         let body = FrameBody::FetchResponse(fetch_response);
 
-        let frame = Frame { size, header, body };
-
-        Ok(frame)
+        Ok(Frame { size, header, body })
     }
 
     async fn handle_produce(&self, _body: &ProduceRequest) -> io::Result<Frame> {
