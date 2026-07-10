@@ -3,13 +3,10 @@ use std::sync::Arc;
 use bytes::BytesMut;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpListener, TcpSocket, TcpStream},
+    net::{TcpListener, TcpStream},
 };
 
-use crate::{
-    broker::Broker,
-    message::{Message, parser::MessageParser},
-};
+use crate::{broker::Broker, message::Message};
 
 pub struct NetworkManager {
     broker: Arc<Broker>,

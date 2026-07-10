@@ -114,7 +114,7 @@ impl ActiveSegment {
         Ok(())
     }
 
-    pub fn fetch(&self, partition_request: FetchPartition) -> Vec<Batch> {
+    pub fn fetch(&self, partition_request: &FetchPartition) -> Vec<Batch> {
         self.segment.clone().fetch(partition_request)
     }
 

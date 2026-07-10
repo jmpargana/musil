@@ -80,7 +80,7 @@ impl Partition {
 
     pub(crate) async fn fetch(
         &self,
-        partition: crate::message::consumer::FetchPartition,
+        fetch_req: &crate::message::consumer::FetchPartition,
         replica_id: i32,
     ) -> PartitionResponse {
         let res = self.handle.fetch(self.id, fetch_req);
@@ -101,7 +101,7 @@ impl Partition {
 
 #[cfg(test)]
 mod tests {
-    use crate::{partition::config::PartitionConfigBuilder, replica::ReplicaMetadata};
+    use crate::partition::config::PartitionConfigBuilder;
 
     use super::*;
 

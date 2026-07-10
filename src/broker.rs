@@ -1,11 +1,10 @@
-use std::{self, Error, collections::HashMap, io, sync::Arc, time::Instant};
+use std::{collections::HashMap, io, time::Instant};
 
 use crate::{
     message::{
         Message,
-        body::MessageBody,
+        body::{MessageBody, ProduceRequest},
         consumer::{FetchResponse, TopicResponse},
-        header::{MessageHeader, MessageHeaderBuilder},
     },
     partition::Partition,
     topic::TopicPartition,
@@ -30,9 +29,9 @@ impl Broker {
     // TODO: maybe internal handler returns body, this wraps in Message?
     pub async fn handle(&self, req: Message) -> io::Result<Message> {
         // api key redundant since body already has format
-        match req.body {
-            MessageBody::Fetch(body) => self.handle_fetch(req, body).await,
-            MessageBody::Produce(body) => self.handle_produce(body).await,
+        match &req.body {
+            MessageBody::Fetch(body) => self.handle_fetch(&req, &body).await,
+            MessageBody::Produce(body) => self.handle_produce(&body).await,
             _ => panic!("unsupported"),
         }
     }
@@ -40,22 +39,23 @@ impl Broker {
     // TODO: refactor to only respond to body, or extract body only.
     async fn handle_fetch(
         &self,
-        req: Message,
-        body: crate::message::consumer::FetchRequest,
+        // TODO: maybe this doesn't have to be referrence, instead move, so that no clone is needed.
+        req: &Message,
+        body: &crate::message::consumer::FetchRequest,
     ) -> io::Result<Message> {
         let now = Instant::now();
-        let topic_responses = Vec::new();
+        let mut topic_responses = Vec::new();
 
-        for t in body.topics {
-            let part_responses = Vec::new();
-            for p in t.partitions {
+        for t in &body.topics {
+            let mut part_responses = Vec::new();
+            for p in &t.partitions {
                 let partition = self.partition(&t.topic, p.partition as u16)?;
-                let part_res = partition.fetch(p, body.replica_id).await;
+                let part_res = partition.fetch(&p, body.replica_id).await;
                 part_responses.push(part_res);
             }
 
             topic_responses.push(TopicResponse {
-                topic: t.topic,
+                topic: t.topic.clone(),
                 partitions: part_responses,
             });
         }
@@ -65,18 +65,18 @@ impl Broker {
             responses: topic_responses,
         };
 
+        // TODO: is it the same header?
+        let header = req.header.clone();
+        let size = fetch_response.get_size() + header.get_size();
+
         let body = MessageBody::FetchResponse(fetch_response);
 
-        let msg = Message {
-            size: fetch_response.get_size() + req.header.get_size(),
-            header: req.header, // TODO: is this right??
-            body,
-        };
+        let msg = Message { size, header, body };
 
         Ok(msg)
     }
 
-    async fn handle_produce(&self, body: _) -> io::Result<Message> {
+    async fn handle_produce(&self, body: &ProduceRequest) -> io::Result<Message> {
         todo!()
     }
 }

@@ -11,11 +11,6 @@ pub enum Command {
         record: Record,
         done: oneshot::Sender<()>,
     },
-    AppendV2 {
-        batch: Batch,
-        done: oneshot::Sender<()>,
-    },
-    Fetch {},
     ReplicaAck {
         broker_id: String,
         offset: u64,

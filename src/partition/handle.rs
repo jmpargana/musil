@@ -33,7 +33,7 @@ impl PartitionHandle {
         self.state.load_full().find_pos(offset)
     }
 
-    pub fn fetch(&self, partition_index: u32, fetch_req: FetchPartition) -> PartitionResponse {
+    pub fn fetch(&self, partition_index: u32, fetch_req: &FetchPartition) -> PartitionResponse {
         self.state.load_full().fetch(partition_index, fetch_req)
     }
 }

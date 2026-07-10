@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use crate::command::Command;
 use crate::partition::state::PartitionState;
 use crate::segment::active::ActiveSegment;
-use crate::segment::options::{SegmentConfig, SegmentConfigBuilder};
+use crate::segment::options::SegmentConfigBuilder;
 
 pub struct PartitionActor {
     rx: mpsc::Receiver<Command>,
@@ -123,17 +123,10 @@ impl PartitionActor {
                     done.send(()).unwrap();
                 }
                 // FIXME: refactor, this should never be used here
-                Command::ReplicaRequest { broker_id, record } => todo!(),
-                Command::AppendV2 { batch, done } => {
-                    // TODO: implement
-                    // self.active.append(record);
-
-                    done.send(()).unwrap();
-                }
-                Command::Fetch {} => todo!(),
+                Command::ReplicaRequest { .. } => todo!(),
                 Command::ReplicaFetch { replica_id, leo } => {
                     let state = self.snapshot.load_full();
-                    let next = (*state).clone().ack_replica2(broker_id, offset);
+                    let next = (*state).clone().ack_replica2(replica_id, leo);
                     self.snapshot.store(Arc::new(next));
                 }
             }

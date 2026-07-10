@@ -4,7 +4,7 @@ use bytes::{Buf, Bytes};
 
 use crate::message::{
     Message,
-    body::MessageBody,
+    body::{MessageBody, ProduceRequest},
     header::{MessageApiKey, MessageHeader},
     produce::{ProducePartition, ProduceTopic},
 };
@@ -95,12 +95,12 @@ impl MessageParser {
             topics.push(ProduceTopic { topic, partitions });
         }
 
-        Ok(MessageBody::Produce {
+        Ok(MessageBody::Produce(ProduceRequest {
             transactional_id,
             acks,
             timeout,
             topics,
-        })
+        }))
     }
 }
 
@@ -169,12 +169,12 @@ mod tests {
         assert_eq!(message.header.client_id.as_deref(), Some("client"));
 
         match message.body {
-            MessageBody::Produce {
+            MessageBody::Produce(ProduceRequest {
                 transactional_id,
                 acks,
                 timeout: _,
                 topics,
-            } => {
+            }) => {
                 assert_eq!(transactional_id, 123);
                 assert_eq!(acks, Ack::Leader);
                 assert_eq!(topics.len(), 1);

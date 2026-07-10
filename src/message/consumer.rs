@@ -1,4 +1,4 @@
-use crate::{batch::Batch, record::Record};
+use crate::batch::Batch;
 
 pub struct FetchRequest {
     pub replica_id: i32,
@@ -34,7 +34,7 @@ pub struct FetchResponse {
 
 impl FetchResponse {
     pub fn get_size(&self) -> u32 {
-        4 + self.responses.iter().map(|r| r.get_size()).sum()
+        4 + self.responses.iter().map(|r| r.get_size()).sum::<u32>()
     }
 }
 
@@ -45,7 +45,7 @@ pub struct TopicResponse {
 
 impl TopicResponse {
     pub fn get_size(&self) -> u32 {
-        self.topic.len() + self.partitions.iter().map(|p| p.get_size()).sum()
+        self.topic.len() as u32 + self.partitions.iter().map(|p| p.get_size()).sum::<u32>()
     }
 }
 
@@ -61,8 +61,8 @@ pub struct PartitionResponse {
 }
 
 impl PartitionResponse {
-    pub fn get_size(&self) -> u64 {
+    pub fn get_size(&self) -> u32 {
         // each field plus records
-        4 + 2 + 8 + 8 + self.records.iter().map(|b| b.get_size()).sum()
+        4 + 2 + 8 + 8 + self.records.iter().map(|b| b.get_size()).sum::<u32>()
     }
 }

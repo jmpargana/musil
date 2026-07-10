@@ -1,19 +1,21 @@
 use std::time::Duration;
 
-use derive_builder::Builder;
-
-use crate::message::{ack::Ack, consumer::FetchRequest, produce::ProduceTopic};
+use crate::message::{
+    ack::Ack,
+    consumer::{FetchRequest, FetchResponse},
+    produce::ProduceTopic,
+};
 
 pub enum MessageBody {
     Produce(ProduceRequest),
     ProduceResponse,
     Fetch(FetchRequest),
-    FetchResponse,
+    FetchResponse(FetchResponse),
 }
 
 pub struct ProduceRequest {
-    transactional_id: u64,
-    acks: Ack,
-    timeout: Duration,
-    topics: Vec<ProduceTopic>,
+    pub transactional_id: u64,
+    pub acks: Ack,
+    pub timeout: Duration,
+    pub topics: Vec<ProduceTopic>,
 }

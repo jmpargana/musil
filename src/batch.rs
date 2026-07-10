@@ -1,8 +1,6 @@
 use std::{fs::File, os::unix::fs::FileExt};
 
-use bytes::{Buf, BufMut, Bytes, BytesMut};
-
-use crate::record::Record;
+use bytes::{BufMut, Bytes, BytesMut};
 
 type RawBatch = Vec<u8>;
 

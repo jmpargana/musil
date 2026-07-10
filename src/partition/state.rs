@@ -35,7 +35,7 @@ impl PartitionState {
         }
     }
 
-    pub fn fetch(&self, partition_index: u32, fetch_req: FetchPartition) -> PartitionResponse {
+    pub fn fetch(&self, partition_index: u32, fetch_req: &FetchPartition) -> PartitionResponse {
         if fetch_req.fetch_offset > self.high_watermark {
             // handle impossible
         }

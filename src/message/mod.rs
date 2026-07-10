@@ -36,20 +36,15 @@ impl Message {
         }
 
         match &self.body {
-            MessageBody::Produce {
-                transactional_id,
-                acks,
-                timeout,
-                topics,
-            } => {
-                buf.put_u64(*transactional_id);
-                buf.put_u32(u32::from(*acks));
+            MessageBody::Produce(req) => {
+                buf.put_u64(req.transactional_id);
+                buf.put_u32(u32::from(req.acks));
 
                 // FIXME: should be millis instead of secs
-                buf.put_u64(timeout.as_secs());
+                buf.put_u64(req.timeout.as_secs());
 
-                buf.put_u16(topics.len() as u16);
-                for t in topics {
+                buf.put_u16(req.topics.len() as u16);
+                for t in &req.topics {
                     buf.put_u16(t.topic.len() as u16);
                     buf.copy_from_slice(t.topic.as_bytes());
 
@@ -61,9 +56,9 @@ impl Message {
                     }
                 }
             }
-            MessageBody::FetchResponse => todo!(),
+            MessageBody::FetchResponse(_) => todo!(),
             MessageBody::ProduceResponse => todo!(),
-            MessageBody::Fetch => todo!(),
+            MessageBody::Fetch(_) => todo!(),
         }
 
         buf.freeze()

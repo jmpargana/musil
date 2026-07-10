@@ -46,7 +46,7 @@ impl Segment {
     }
 
     // TODO: need to understand if record needs to be deserialized
-    pub fn fetch(&self, req: FetchPartition) -> Vec<Batch> {
+    pub fn fetch(&self, req: &FetchPartition) -> Vec<Batch> {
         let Some(idx) = self.find_physical_position(req.fetch_offset) else {
             return vec![];
         };
