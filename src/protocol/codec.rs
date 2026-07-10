@@ -2,16 +2,20 @@ use std::time::Duration;
 
 use bytes::{Buf, Bytes};
 
-use crate::message::{
-    Message,
-    body::{MessageBody, ProduceRequest},
-    header::{MessageApiKey, MessageHeader},
-    produce::{ProducePartition, ProduceTopic},
+use crate::protocol::{
+    Frame,
+    header::{ApiKey, RequestHeader},
+    produce::request::{
+        produce_partition::ProducePartition, produce_request::ProduceRequest,
+        produce_topic::ProduceTopic,
+    },
 };
 
-// MessageParser doesn't own buffer, instead it consumes just enough to find the size and then creates an event with fd ptr and size
+use super::body::FrameBody;
+
+// RequestDecoder doesn't own buffer, instead it consumes just enough to find the size and then creates an event with fd ptr and size
 #[derive(Debug)]
-pub struct MessageParser;
+pub struct RequestDecoder;
 
 #[derive(Debug)]
 pub enum ParseError {
@@ -20,8 +24,8 @@ pub enum ParseError {
     InvalidClientId,
 }
 
-impl MessageParser {
-    pub fn parse(&mut self, mut buf: Bytes) -> Result<Message, ParseError> {
+impl RequestDecoder {
+    pub fn parse(&mut self, mut buf: Bytes) -> Result<Frame, ParseError> {
         let size = buf.get_u32();
 
         let api_key = buf.get_u32();
@@ -38,9 +42,9 @@ impl MessageParser {
             None
         };
 
-        let api_key: MessageApiKey = api_key.try_into().map_err(|_| ParseError::InvalidApiKey)?;
+        let api_key: ApiKey = api_key.try_into().map_err(|_| ParseError::InvalidApiKey)?;
 
-        let header = MessageHeader {
+        let header = RequestHeader {
             api_key,
             api_version,
             correlation_id,
@@ -48,18 +52,18 @@ impl MessageParser {
         };
 
         // TODO: depending on message type we need to read different values from body
-        let body: MessageBody = match api_key {
+        let body: FrameBody = match api_key {
             // FIXME: before doing this I need to copy more bytes on demand to keep reading
-            MessageApiKey::Produce => self.parse_produce(buf)?,
-            MessageApiKey::Fetch => {
+            ApiKey::Produce => self.parse_produce(buf)?,
+            ApiKey::Fetch => {
                 todo!()
             }
         };
 
-        Ok(Message { size, header, body })
+        Ok(Frame { size, header, body })
     }
 
-    fn parse_produce(&self, mut buf: Bytes) -> Result<MessageBody, ParseError> {
+    fn parse_produce(&self, mut buf: Bytes) -> Result<FrameBody, ParseError> {
         let transactional_id = buf.get_u64();
         let acks = buf
             .get_u32()
@@ -95,7 +99,7 @@ impl MessageParser {
             topics.push(ProduceTopic { topic, partitions });
         }
 
-        Ok(MessageBody::Produce(ProduceRequest {
+        Ok(FrameBody::Produce(ProduceRequest {
             transactional_id,
             acks,
             timeout,
@@ -108,12 +112,17 @@ impl MessageParser {
 mod tests {
     use bytes::{BufMut, BytesMut};
 
-    use crate::message::ack::Ack;
+    use crate::protocol::{
+        body::FrameBody,
+        codec::RequestDecoder,
+        header::ApiKey,
+        produce::{acks::Acks, request::produce_request::ProduceRequest},
+    };
 
     use super::*;
 
     // TODO: refactor to use encoder, which will be needed before writing to network
-    fn produce_message_bytes() -> Bytes {
+    fn produce_frame_bytes() -> Bytes {
         let mut buf = BytesMut::new();
 
         // size
@@ -157,33 +166,33 @@ mod tests {
     }
 
     #[test]
-    fn parses_full_message() {
-        let bytes = produce_message_bytes();
-        let mut parser = MessageParser;
-        let message = parser.parse(bytes).unwrap();
+    fn parses_full_frame() {
+        let bytes = produce_frame_bytes();
+        let mut decoder = RequestDecoder;
+        let frame = decoder.parse(bytes).unwrap();
 
-        assert_eq!(message.size, 65);
-        assert_eq!(message.header.api_key, MessageApiKey::Produce);
-        assert_eq!(message.header.api_version, 0);
-        assert_eq!(message.header.correlation_id, 42);
-        assert_eq!(message.header.client_id.as_deref(), Some("client"));
+        assert_eq!(frame.size, 65);
+        assert_eq!(frame.header.api_key, ApiKey::Produce);
+        assert_eq!(frame.header.api_version, 0);
+        assert_eq!(frame.header.correlation_id, 42);
+        assert_eq!(frame.header.client_id.as_deref(), Some("client"));
 
-        match message.body {
-            MessageBody::Produce(ProduceRequest {
+        match frame.body {
+            FrameBody::Produce(ProduceRequest {
                 transactional_id,
                 acks,
                 timeout: _,
                 topics,
             }) => {
                 assert_eq!(transactional_id, 123);
-                assert_eq!(acks, Ack::Leader);
+                assert_eq!(acks, Acks::Leader);
                 assert_eq!(topics.len(), 1);
                 assert_eq!(topics[0].topic, "orders");
                 assert_eq!(topics[0].partitions.len(), 1);
                 assert_eq!(topics[0].partitions[0].partition_id, 3);
                 assert_eq!(topics[0].partitions[0].batch.as_ref(), b"hello");
             }
-            _ => panic!("expected produce message"),
+            _ => panic!("expected produce frame"),
         }
     }
 }

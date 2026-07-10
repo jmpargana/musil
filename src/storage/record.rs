@@ -15,7 +15,7 @@ impl Record {
     pub fn new(key: &[u8], value: &[u8]) -> Self {
         Self {
             offset: None,
-            timestamp: UNIX_EPOCH.elapsed().unwrap().as_secs(), // probably need different way to get ms accuracy
+            timestamp: UNIX_EPOCH.elapsed().unwrap().as_secs(),
             key: key.to_vec(),
             value: value.to_vec(),
         }
@@ -32,7 +32,7 @@ impl Record {
     }
 
     pub fn decode(buf: &[u8]) -> io::Result<Record> {
-        Record::decode_raw(&buf).map(|it| it.0)
+        Record::decode_raw(buf).map(|it| it.0)
     }
 
     pub fn decode_raw(buf: &[u8]) -> io::Result<(Record, usize)> {
@@ -95,7 +95,7 @@ impl Record {
 
 #[cfg(test)]
 mod tests {
-    use crate::record::Record;
+    use crate::storage::record::Record;
 
     #[test]
     fn decode_encode_e2e() {

@@ -1,25 +1,24 @@
 use bytes::{BufMut, Bytes, BytesMut};
 
-use crate::message::{
-    body::MessageBody,
-    header::MessageHeader,
-    parser::{MessageParser, ParseError},
+use crate::protocol::{
+    body::FrameBody,
+    codec::{ParseError, RequestDecoder},
+    header::RequestHeader,
 };
 
-pub mod ack;
 pub mod body;
-pub mod consumer;
+pub mod codec;
+pub mod fetch;
 pub mod header;
-pub mod parser;
 pub mod produce;
 
-pub struct Message {
+pub struct Frame {
     pub size: u32,
-    pub header: MessageHeader,
-    pub body: MessageBody,
+    pub header: RequestHeader,
+    pub body: FrameBody,
 }
 
-impl Message {
+impl Frame {
     // This method might be redundant if using sendfile from producer...
     pub fn encode(&self) -> Bytes {
         let mut buf = BytesMut::new();
@@ -36,7 +35,7 @@ impl Message {
         }
 
         match &self.body {
-            MessageBody::Produce(req) => {
+            FrameBody::Produce(req) => {
                 buf.put_u64(req.transactional_id);
                 buf.put_u32(u32::from(req.acks));
 
@@ -56,16 +55,16 @@ impl Message {
                     }
                 }
             }
-            MessageBody::FetchResponse(_) => todo!(),
-            MessageBody::ProduceResponse => todo!(),
-            MessageBody::Fetch(_) => todo!(),
+            FrameBody::FetchResponse(_) => todo!(),
+            FrameBody::ProduceResponse => todo!(),
+            FrameBody::Fetch(_) => todo!(),
         }
 
         buf.freeze()
     }
 
     pub fn decode(buf: Bytes) -> Result<Self, ParseError> {
-        let mut parser = MessageParser;
-        parser.parse(buf)
+        let mut decoder = RequestDecoder;
+        decoder.parse(buf)
     }
 }

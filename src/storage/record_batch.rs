@@ -2,17 +2,15 @@ use std::{fs::File, os::unix::fs::FileExt};
 
 use bytes::{BufMut, Bytes, BytesMut};
 
-type RawBatch = Vec<u8>;
-
 // TODO: there's way more information here. I'm starting with the basic
-pub struct Batch {
+pub struct RecordBatch {
     pub base_offset: u64,
     pub batch_length: u32, // how many bytes follow (including fields until records)
     pub records_count: u32,
     pub records: Bytes,
 }
 
-impl Batch {
+impl RecordBatch {
     pub fn get_size(&self) -> u32 {
         8 + self.batch_length
         // or 8 + 4 + 4 + self.records.len()

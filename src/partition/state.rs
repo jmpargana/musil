@@ -1,23 +1,18 @@
-use std::{cmp::max, mem, sync::Arc};
-
-use derive_builder::Builder;
-use tokio::sync::mpsc;
+use std::{cmp::max, sync::Arc};
 
 use crate::{
-    broker,
-    message::consumer::{FetchPartition, FetchRequest, PartitionResponse},
-    record::Record,
-    replica::ReplicaMetadata,
-    segment::{
-        active::ActiveSegment,
-        metadata::{RecordLocation, Segment},
+    protocol::fetch::{
+        request::fetch_partition::FetchPartition,
+        response::partition_response::PartitionResponse,
     },
+    replica::ReplicaMetadata,
+    segment::metadata::{RecordLocation, SegmentView},
 };
 
 #[derive(Clone)]
 pub struct PartitionState {
     // TODO: should this have partition_id as well?
-    pub segments: Arc<Vec<Arc<Segment>>>,
+    pub segments: Arc<Vec<Arc<SegmentView>>>,
     pub log_end_offset: u64,
     pub high_watermark: u64,
     pub replicas: Arc<Vec<ReplicaMetadata>>,
@@ -62,6 +57,7 @@ impl PartitionState {
             .segments
             .partition_point(|segment| segment.base_offset <= offset);
         // FIXME: something feels off about this
+        #[allow(deprecated)]
         self.segments[idx - 1].find_pos(offset)
     }
 
@@ -78,7 +74,7 @@ impl PartitionState {
         self
     }
 
-    #[deprecated(note = "invalid flow, use ack_replica_2 instead")]
+    #[deprecated(note = "invalid flow, use ack_replica2 instead")]
     pub fn ack_replica(mut self, broker_id: String, offset: u64) -> Self {
         let replicas = Arc::make_mut(&mut self.replicas);
 
@@ -94,7 +90,7 @@ impl PartitionState {
 
     pub fn consume(
         self,
-        segments: Arc<Vec<Arc<Segment>>>,
+        segments: Arc<Vec<Arc<SegmentView>>>,
         log_end_offset: u64,
         high_watermark: u64,
     ) -> Self {

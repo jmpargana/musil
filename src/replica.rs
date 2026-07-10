@@ -1,9 +1,5 @@
 use std::time::Instant;
 
-use tokio::sync::mpsc;
-
-use crate::command::Command;
-
 #[derive(Clone)]
 pub struct ReplicaMetadata {
     // TODO: maybe this field get's removed?

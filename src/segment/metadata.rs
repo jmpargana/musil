@@ -1,15 +1,14 @@
 use std::{
     fs::File,
     os::unix::fs::FileExt,
-    sync::{Arc, atomic::AtomicU64},
+    sync::Arc,
 };
 
 use memmap::{Mmap, MmapOptions};
 
 use crate::{
-    batch::Batch,
-    message::consumer::{FetchPartition, PartitionResponse},
-    record::Record,
+    protocol::fetch::request::fetch_partition::FetchPartition,
+    storage::{record::Record, record_batch::RecordBatch},
 };
 
 const INDEX_ENTRY_SIZE: usize = 16; // (u64 offset + u64 position)
@@ -22,7 +21,7 @@ pub struct IndexEntry {
 }
 
 #[derive(Clone)]
-pub struct Segment {
+pub struct SegmentView {
     pub base_offset: u64,
 
     log: Arc<File>,
@@ -32,7 +31,7 @@ pub struct Segment {
     pub size: usize,
 }
 
-impl Segment {
+impl SegmentView {
     pub fn new(base_offset: u64, log: File, index: File) -> Self {
         let index = unsafe { MmapOptions::new().map(&index).unwrap() };
 
@@ -46,7 +45,7 @@ impl Segment {
     }
 
     // TODO: need to understand if record needs to be deserialized
-    pub fn fetch(&self, req: &FetchPartition) -> Vec<Batch> {
+    pub fn fetch(&self, req: &FetchPartition) -> Vec<RecordBatch> {
         let Some(idx) = self.find_physical_position(req.fetch_offset) else {
             return vec![];
         };
@@ -55,7 +54,7 @@ impl Segment {
             return vec![];
         };
 
-        let batch = Batch::decode(&self.log, pos);
+        let batch = RecordBatch::decode(&self.log, pos);
 
         let mut record_iter = RecordIter {
             bytes: &batch.records,
@@ -67,7 +66,7 @@ impl Segment {
 
         let actual_batch_length = batch.batch_length - starting_pos as u32;
 
-        let mut batches = vec![Batch {
+        let mut batches = vec![RecordBatch {
             base_offset: req.fetch_offset,
             batch_length: actual_batch_length,
             records_count: batch.records_count
@@ -83,7 +82,7 @@ impl Segment {
         let mut total_bytes = actual_batch_length;
         pos += 8 + batch.batch_length as u64;
         while total_bytes < req.partition_max_bytes {
-            let batch = Batch::decode(&self.log, pos);
+            let batch = RecordBatch::decode(&self.log, pos);
             total_bytes += batch.batch_length;
             if total_bytes < req.partition_max_bytes {
                 batches.push(batch);
@@ -288,7 +287,6 @@ impl<'a> Iterator for RecordIter<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     // TODO: implement these test cases.
     #[test]

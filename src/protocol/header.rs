@@ -4,14 +4,14 @@ const HEADER_SIZE: usize = 16; // 4xu32
 
 // TODO: do I need Request or Response?
 #[derive(Builder, Clone)]
-pub struct MessageHeader {
-    pub api_key: MessageApiKey,
+pub struct RequestHeader {
+    pub api_key: ApiKey,
     pub api_version: u32,
     pub correlation_id: u32,
     pub client_id: Option<String>,
 }
 
-impl MessageHeader {
+impl RequestHeader {
     pub fn get_size(&self) -> u32 {
         let client_id_size = if let Some(c) = &self.client_id {
             c.len()
@@ -24,7 +24,7 @@ impl MessageHeader {
 
 // TODO: Actual size of payload is a combination of ApiKey and ApiVersion, but we'll ignore this for now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MessageApiKey {
+pub enum ApiKey {
     Produce,
     Fetch,
     // other values:
@@ -36,23 +36,23 @@ pub enum MessageApiKey {
 #[derive(Debug)]
 pub struct InvalidEnumValue(pub u32);
 
-impl TryFrom<u32> for MessageApiKey {
+impl TryFrom<u32> for ApiKey {
     type Error = InvalidEnumValue;
 
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(MessageApiKey::Produce),
-            1 => Ok(MessageApiKey::Fetch),
+            0 => Ok(ApiKey::Produce),
+            1 => Ok(ApiKey::Fetch),
             _ => Err(InvalidEnumValue(value)),
         }
     }
 }
 
-impl From<MessageApiKey> for u32 {
-    fn from(value: MessageApiKey) -> Self {
+impl From<ApiKey> for u32 {
+    fn from(value: ApiKey) -> Self {
         match value {
-            MessageApiKey::Produce => 0,
-            MessageApiKey::Fetch => 1,
+            ApiKey::Produce => 0,
+            ApiKey::Fetch => 1,
         }
     }
 }

@@ -1,25 +1,26 @@
 use std::{path::Path, sync::Arc};
 
 use crate::{
-    batch::Batch,
-    command::Command,
-    message::consumer::{FetchResponse, PartitionResponse},
     partition::{
-        actor::PartitionActor, config::PartitionConfig, handle::PartitionHandle,
+        actor::PartitionActor,
+        command::PartitionCommand,
+        config::PartitionConfig,
+        handle::PartitionHandle,
         state::PartitionState,
     },
-    record::Record,
+    protocol::fetch::{
+        request::fetch_partition::FetchPartition,
+        response::partition_response::PartitionResponse,
+    },
     segment::metadata::RecordLocation,
+    storage::record::Record,
 };
 
 use arc_swap::ArcSwap;
-use bytes::Bytes;
-use tokio::sync::{
-    mpsc::{self, channel},
-    oneshot,
-};
+use tokio::sync::{mpsc::channel, oneshot};
 
 pub mod actor;
+pub mod command;
 pub mod config;
 pub mod handle;
 pub mod state;
@@ -33,17 +34,15 @@ pub struct Partition {
 
 impl Partition {
     async fn shutdown(self) {
-        self.handle.send(Command::Shutdown).await.unwrap();
+        self.handle.send(PartitionCommand::Shutdown).await.unwrap();
         self.join.await.unwrap();
     }
-
-    pub async fn produce(&self, batch: Bytes) {}
 
     // TODO: respond based on ack
     pub async fn append(&self, record: Record) {
         let (tx, rx) = oneshot::channel();
         self.handle
-            .send(Command::Append { record, done: tx })
+            .send(PartitionCommand::Append { record, done: tx })
             .await
             .unwrap();
         rx.await.unwrap();
@@ -80,14 +79,14 @@ impl Partition {
 
     pub(crate) async fn fetch(
         &self,
-        fetch_req: &crate::message::consumer::FetchPartition,
+        fetch_req: &FetchPartition,
         replica_id: i32,
     ) -> PartitionResponse {
         let res = self.handle.fetch(self.id, fetch_req);
 
         if replica_id >= 0 {
             self.handle
-                .send(Command::ReplicaFetch {
+                .send(PartitionCommand::UpdateReplicaLeo {
                     replica_id: replica_id as u32,
                     leo: res.log_start_offset,
                 })
@@ -149,115 +148,4 @@ mod tests {
         let state = partition.handle.state.load_full();
         assert_eq!(state.segments.len(), 2);
     }
-
-    // TODO: following tests are no longer correct.
-    // #[tokio::test]
-    // async fn calls_each_replica() {
-    //     let (tx, mut rx) = mpsc::channel(2);
-    //     let dir = tempdir::TempDir::new("./")
-    //         .unwrap()
-    //         .path()
-    //         .to_str()
-    //         .unwrap()
-    //         .to_string();
-    //     let cfg = PartitionConfigBuilder::default()
-    //         .segment_bytes(3)
-    //         .replicas(vec![
-    //             ReplicaMetadata::empty("1".to_string()),
-    //             ReplicaMetadata::empty("2".to_string()),
-    //         ])
-    //         .build()
-    //         .unwrap();
-    //     let partition = Partition::with_config("test".to_string(), 0, dir, tx, cfg);
-    //     let record = Record::new(b"hello", b"world");
-
-    //     let offset = partition.find_pos(1);
-    //     assert!(offset.is_none());
-
-    //     partition.append(record).await;
-
-    //     let mut received = Vec::new();
-
-    //     for _ in 0..2 {
-    //         let cmd = rx.recv().await.unwrap();
-    //         let Command::ReplicaRequest { broker_id, .. } = cmd else {
-    //             panic!("expecterd ReplicaRequest");
-    //         };
-    //         received.push(broker_id);
-    //     }
-
-    //     assert_eq!(received.len(), 2);
-    //     received.sort();
-    //     assert_eq!(received[0], "1".to_string());
-    //     assert_eq!(received[1], "2".to_string());
-    // }
-
-    // #[tokio::test]
-    // async fn high_watermark_updates_after_all() {
-    //     let (tx, mut rx) = mpsc::channel(2);
-    //     let dir = tempdir::TempDir::new("./")
-    //         .unwrap()
-    //         .path()
-    //         .to_str()
-    //         .unwrap()
-    //         .to_string();
-    //     let cfg = PartitionConfigBuilder::default()
-    //         .segment_bytes(3)
-    //         .replicas(vec![
-    //             ReplicaMetadata::empty("1".to_string()),
-    //             ReplicaMetadata::empty("2".to_string()),
-    //         ])
-    //         .build()
-    //         .unwrap();
-    //     let partition = Partition::with_config("test".to_string(), 0, dir, tx, cfg);
-    //     let record = Record::new(b"hello", b"world");
-
-    //     let offset = partition.find_pos(1);
-    //     assert!(offset.is_none());
-
-    //     partition.append(record).await;
-
-    //     for _ in 0..2 {
-    //         let cmd = rx.recv().await.unwrap();
-    //         let Command::ReplicaRequest { .. } = cmd else {
-    //             panic!("expecterd ReplicaRequest");
-    //         };
-    //     }
-
-    //     let state = partition.handle.state.load_full();
-
-    //     assert_eq!(state.high_watermark, 0);
-
-    //     let (tx, rx) = oneshot::channel();
-
-    //     partition
-    //         .handle
-    //         .send(Command::ReplicaAck {
-    //             broker_id: "1".to_string(),
-    //             offset: 1,
-    //             done: tx,
-    //         })
-    //         .await
-    //         .unwrap();
-
-    //     rx.await.unwrap();
-    //     let state = partition.handle.state.load_full();
-
-    //     assert_eq!(state.high_watermark, 0);
-
-    //     let (tx, rx) = oneshot::channel();
-    //     partition
-    //         .handle
-    //         .send(Command::ReplicaAck {
-    //             broker_id: "2".to_string(),
-    //             offset: 1,
-    //             done: tx,
-    //         })
-    //         .await
-    //         .unwrap();
-    //     rx.await.unwrap();
-
-    //     let state = partition.handle.state.load_full();
-    //     assert_eq!(state.high_watermark, 1);
-    // }
 }

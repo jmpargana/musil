@@ -1,29 +1,22 @@
 use std::{
     fs::{self, File, OpenOptions},
-    io::{self, BufWriter, Read, Write},
-    os::unix::fs::FileExt,
+    io::{self, Write},
     path::Path,
     sync::Arc,
 };
 
-use bytes::Bytes;
 use memmap::MmapOptions;
 
 use crate::{
-    batch::Batch,
-    message::{
-        consumer::{FetchPartition, PartitionResponse},
-        produce::ProducePartition,
-    },
-    partition::Partition,
-    record::Record,
-    segment::{metadata::Segment, options::SegmentConfig},
+    protocol::fetch::request::fetch_partition::FetchPartition,
+    segment::{config::SegmentConfig, metadata::SegmentView},
+    storage::{record::Record, record_batch::RecordBatch},
 };
 
 const INDEX_ENTRY_SIZE: usize = 16; // (u64 offset + u64 position)
 
-pub struct ActiveSegment {
-    segment: Arc<Segment>,
+pub struct LogSegment {
+    segment: Arc<SegmentView>,
 
     log_file: File,
     index_file: memmap::MmapMut,
@@ -37,7 +30,7 @@ pub struct ActiveSegment {
     index_threshold_bytes: usize,
 }
 
-impl ActiveSegment {
+impl LogSegment {
     pub fn new(opts: SegmentConfig) -> io::Result<Self> {
         let base_path = Path::new(&opts.base_dir);
 
@@ -71,7 +64,7 @@ impl ActiveSegment {
         };
 
         // alternatively, we can create new handles in the segment new function, because those should be read-only
-        let segment = Arc::new(Segment::new(
+        let segment = Arc::new(SegmentView::new(
             opts.base_offset,
             log_file.try_clone()?,
             index_file_handle.try_clone()?,
@@ -89,7 +82,7 @@ impl ActiveSegment {
         })
     }
 
-    pub fn append_batch(&mut self, batch: Batch) -> io::Result<()> {
+    pub fn append_batch(&mut self, batch: RecordBatch) -> io::Result<()> {
         let log_pos = self.log_file.metadata()?.len();
 
         // batch is already encoded
@@ -114,7 +107,7 @@ impl ActiveSegment {
         Ok(())
     }
 
-    pub fn fetch(&self, partition_request: &FetchPartition) -> Vec<Batch> {
+    pub fn fetch(&self, partition_request: &FetchPartition) -> Vec<RecordBatch> {
         self.segment.clone().fetch(partition_request)
     }
 
@@ -153,7 +146,7 @@ impl ActiveSegment {
         self.segment.clone().find_pos(target_offset)
     }
 
-    pub fn publish(&mut self) -> Arc<Segment> {
+    pub fn publish(&mut self) -> Arc<SegmentView> {
         let new = self.segment.with_metadata(self.index_count, self.size);
         self.segment = new.clone();
         new
@@ -162,9 +155,10 @@ impl ActiveSegment {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::read;
+    use std::{fs::File, io::Read};
 
-    use crate::segment::options::SegmentConfigBuilder;
+    use crate::segment::config::SegmentConfigBuilder;
+    use crate::storage::record::Record;
 
     use super::*;
 
@@ -178,7 +172,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let _ = ActiveSegment::new(cfg).unwrap();
+        let _ = LogSegment::new(cfg).unwrap();
 
         let mut files = dir.path().read_dir().unwrap();
         assert!(files.any(|f| f.unwrap().file_name() == "00000000000000000000.log"));
@@ -193,7 +187,7 @@ mod tests {
             .base_offset(1230)
             .build()
             .unwrap();
-        let _ = ActiveSegment::new(cfg).unwrap();
+        let _ = LogSegment::new(cfg).unwrap();
 
         let mut files = dir.path().read_dir().unwrap();
         assert!(files.any(|f| f.unwrap().file_name() == "00000000000000001230.log"));
@@ -209,10 +203,11 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut seg = ActiveSegment::new(cfg).unwrap();
+        let mut seg = LogSegment::new(cfg).unwrap();
 
         let mut record = Record::new(b"hello", b"world");
         record.add_offset(1);
+        #[allow(deprecated)]
         let appended_size = seg.append(record).unwrap();
 
         let mut read_dir = dir.path().read_dir().unwrap();
@@ -235,10 +230,11 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut seg = ActiveSegment::new(cfg).unwrap();
+        let mut seg = LogSegment::new(cfg).unwrap();
 
         let mut record = Record::new(b"hello", b"world");
         record.add_offset(1);
+        #[allow(deprecated)]
         let _ = seg.append(record).unwrap();
         drop(seg);
 

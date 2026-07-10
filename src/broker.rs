@@ -1,18 +1,21 @@
 use std::{collections::HashMap, io, time::Instant};
 
 use crate::{
-    message::{
-        Message,
-        body::{MessageBody, ProduceRequest},
-        consumer::{FetchResponse, TopicResponse},
-    },
     partition::Partition,
+    protocol::{
+        Frame,
+        body::FrameBody,
+        fetch::response::{
+            fetch_response::FetchResponse, topic_response::TopicResponse,
+        },
+        produce::request::produce_request::ProduceRequest,
+    },
     topic::TopicPartition,
 };
 
 pub struct Broker {
     // TODO: needs to be behind Arc in case topics and partitions are dynamic, otherwise broker restart is needed
-    // FIXME: use partitionhandle directly.
+    // FIXME: use PartitionHandle directly.
     partitions: HashMap<TopicPartition, Partition>,
 }
 
@@ -26,23 +29,20 @@ impl Broker {
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "unknown partition"))
     }
 
-    // TODO: maybe internal handler returns body, this wraps in Message?
-    pub async fn handle(&self, req: Message) -> io::Result<Message> {
-        // api key redundant since body already has format
+    // TODO: maybe internal handler returns body, this wraps in Frame?
+    pub async fn handle(&self, req: Frame) -> io::Result<Frame> {
         match &req.body {
-            MessageBody::Fetch(body) => self.handle_fetch(&req, &body).await,
-            MessageBody::Produce(body) => self.handle_produce(&body).await,
+            FrameBody::Fetch(body) => self.handle_fetch(&req, body).await,
+            FrameBody::Produce(body) => self.handle_produce(body).await,
             _ => panic!("unsupported"),
         }
     }
 
-    // TODO: refactor to only respond to body, or extract body only.
     async fn handle_fetch(
         &self,
-        // TODO: maybe this doesn't have to be referrence, instead move, so that no clone is needed.
-        req: &Message,
-        body: &crate::message::consumer::FetchRequest,
-    ) -> io::Result<Message> {
+        req: &Frame,
+        body: &crate::protocol::fetch::request::fetch_request::FetchRequest,
+    ) -> io::Result<Frame> {
         let now = Instant::now();
         let mut topic_responses = Vec::new();
 
@@ -50,7 +50,7 @@ impl Broker {
             let mut part_responses = Vec::new();
             for p in &t.partitions {
                 let partition = self.partition(&t.topic, p.partition as u16)?;
-                let part_res = partition.fetch(&p, body.replica_id).await;
+                let part_res = partition.fetch(p, body.replica_id).await;
                 part_responses.push(part_res);
             }
 
@@ -61,22 +61,21 @@ impl Broker {
         }
 
         let fetch_response = FetchResponse {
-            throttle_time_ms: now.elapsed().as_millis() as u32, // TODO: how to cast to u32?,
+            throttle_time_ms: now.elapsed().as_millis() as u32,
             responses: topic_responses,
         };
 
-        // TODO: is it the same header?
         let header = req.header.clone();
         let size = fetch_response.get_size() + header.get_size();
 
-        let body = MessageBody::FetchResponse(fetch_response);
+        let body = FrameBody::FetchResponse(fetch_response);
 
-        let msg = Message { size, header, body };
+        let frame = Frame { size, header, body };
 
-        Ok(msg)
+        Ok(frame)
     }
 
-    async fn handle_produce(&self, body: &ProduceRequest) -> io::Result<Message> {
+    async fn handle_produce(&self, _body: &ProduceRequest) -> io::Result<Frame> {
         todo!()
     }
 }

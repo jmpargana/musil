@@ -4,18 +4,18 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use tokio::sync::mpsc;
 
-use crate::command::Command;
+use crate::partition::command::PartitionCommand;
 use crate::partition::state::PartitionState;
-use crate::segment::active::ActiveSegment;
-use crate::segment::options::SegmentConfigBuilder;
+use crate::segment::config::SegmentConfigBuilder;
+use crate::segment::log_segment::LogSegment;
 
 pub struct PartitionActor {
-    rx: mpsc::Receiver<Command>,
+    rx: mpsc::Receiver<PartitionCommand>,
     base_dir: String,
     segment_bytes: usize,
 
     // mutable data
-    active: ActiveSegment,
+    active: LogSegment,
 
     // immutable data
     snapshot: Arc<ArcSwap<PartitionState>>,
@@ -23,7 +23,7 @@ pub struct PartitionActor {
 
 impl PartitionActor {
     pub fn new(
-        rx: mpsc::Receiver<Command>,
+        rx: mpsc::Receiver<PartitionCommand>,
         base_dir: String,
         segment_bytes: usize,
         snapshot: Arc<ArcSwap<PartitionState>>,
@@ -37,7 +37,7 @@ impl PartitionActor {
             .build()
             .unwrap();
 
-        let mut active = ActiveSegment::new(cfg)?;
+        let mut active = LogSegment::new(cfg)?;
         let state = snapshot.load_full();
 
         let mut segments = state.segments.as_ref().to_vec();
@@ -58,13 +58,14 @@ impl PartitionActor {
     pub async fn run(&mut self) {
         while let Some(c) = self.rx.recv().await {
             match c {
-                Command::Append { mut record, done } => {
+                PartitionCommand::Append { mut record, done } => {
                     let state = self.snapshot.load_full();
                     let mut leo = state.log_end_offset;
 
                     record.add_offset(leo);
 
                     // TODO: handle error
+                    #[allow(deprecated)]
                     self.active.append(record.clone()).unwrap();
 
                     leo += 1;
@@ -82,7 +83,7 @@ impl PartitionActor {
                             .build()
                             .unwrap();
 
-                        let mut new_active = ActiveSegment::new(cfg).unwrap();
+                        let mut new_active = LogSegment::new(cfg).unwrap();
 
                         segments.push(new_active.publish());
 
@@ -107,24 +108,10 @@ impl PartitionActor {
 
                     done.send(()).unwrap();
                 }
-                Command::Shutdown => {
+                PartitionCommand::Shutdown => {
                     break;
                 }
-                // FIXME: deprecated, this can be removed.
-                Command::ReplicaAck {
-                    broker_id,
-                    offset,
-                    done,
-                } => {
-                    let state = self.snapshot.load_full();
-                    let next = (*state).clone().ack_replica(broker_id, offset);
-                    let next = Arc::new(next);
-                    self.snapshot.store(next);
-                    done.send(()).unwrap();
-                }
-                // FIXME: refactor, this should never be used here
-                Command::ReplicaRequest { .. } => todo!(),
-                Command::ReplicaFetch { replica_id, leo } => {
+                PartitionCommand::UpdateReplicaLeo { replica_id, leo } => {
                     let state = self.snapshot.load_full();
                     let next = (*state).clone().ack_replica2(replica_id, leo);
                     self.snapshot.store(Arc::new(next));

@@ -4,28 +4,30 @@ use arc_swap::ArcSwap;
 use tokio::sync::mpsc::{self, error::SendError};
 
 use crate::{
-    command::Command,
-    message::consumer::{FetchPartition, FetchRequest, PartitionResponse},
-    partition::state::PartitionState,
+    partition::{command::PartitionCommand, state::PartitionState},
+    protocol::fetch::{
+        request::fetch_partition::FetchPartition,
+        response::partition_response::PartitionResponse,
+    },
     segment::metadata::RecordLocation,
 };
 
 #[derive(Clone)]
 pub struct PartitionHandle {
-    tx: mpsc::Sender<Command>,
+    tx: mpsc::Sender<PartitionCommand>,
     pub state: Arc<ArcSwap<PartitionState>>,
 }
 
 // TODO: this struct is doing nothing. Partition needs to be migrated here.
 impl PartitionHandle {
     pub(crate) fn new(
-        tx: mpsc::Sender<Command>,
+        tx: mpsc::Sender<PartitionCommand>,
         state: Arc<arc_swap::ArcSwapAny<Arc<PartitionState>>>,
     ) -> Self {
         Self { tx, state }
     }
 
-    pub async fn send(&self, c: Command) -> Result<(), SendError<Command>> {
+    pub async fn send(&self, c: PartitionCommand) -> Result<(), SendError<PartitionCommand>> {
         self.tx.send(c).await
     }
 
