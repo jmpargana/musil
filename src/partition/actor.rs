@@ -110,7 +110,7 @@ impl PartitionActor {
                 Command::Shutdown => {
                     break;
                 }
-                // TODO: this needs to be tested
+                // FIXME: deprecated, this can be removed.
                 Command::ReplicaAck {
                     broker_id,
                     offset,
@@ -131,6 +131,11 @@ impl PartitionActor {
                     done.send(()).unwrap();
                 }
                 Command::Fetch {} => todo!(),
+                Command::ReplicaFetch { replica_id, leo } => {
+                    let state = self.snapshot.load_full();
+                    let next = (*state).clone().ack_replica2(broker_id, offset);
+                    self.snapshot.store(Arc::new(next));
+                }
             }
         }
     }

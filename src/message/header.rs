@@ -11,6 +11,17 @@ pub struct MessageHeader {
     pub client_id: Option<String>,
 }
 
+impl MessageHeader {
+    pub fn get_size(&self) -> u32 {
+        let client_id_size = if let Some(c) = &self.client_id {
+            c.len()
+        } else {
+            0
+        };
+        4 + 4 + 4 + 2 + client_id_size as u32
+    }
+}
+
 // TODO: Actual size of payload is a combination of ApiKey and ApiVersion, but we'll ignore this for now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageApiKey {

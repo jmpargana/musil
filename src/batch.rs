@@ -15,6 +15,11 @@ pub struct Batch {
 }
 
 impl Batch {
+    pub fn get_size(&self) -> u32 {
+        8 + self.batch_length
+        // or 8 + 4 + 4 + self.records.len()
+    }
+
     pub fn encode_header(&self) -> Bytes {
         let mut buf = BytesMut::new();
 

@@ -32,9 +32,21 @@ pub struct FetchResponse {
     pub responses: Vec<TopicResponse>,
 }
 
+impl FetchResponse {
+    pub fn get_size(&self) -> u32 {
+        4 + self.responses.iter().map(|r| r.get_size()).sum()
+    }
+}
+
 pub struct TopicResponse {
     pub topic: String,
     pub partitions: Vec<PartitionResponse>,
+}
+
+impl TopicResponse {
+    pub fn get_size(&self) -> u32 {
+        self.topic.len() + self.partitions.iter().map(|p| p.get_size()).sum()
+    }
 }
 
 // TODO: include transactional fields.
@@ -46,4 +58,11 @@ pub struct PartitionResponse {
     pub log_start_offset: u64,
     pub records: Vec<Batch>,
     // TODO: include leader.
+}
+
+impl PartitionResponse {
+    pub fn get_size(&self) -> u64 {
+        // each field plus records
+        4 + 2 + 8 + 8 + self.records.iter().map(|b| b.get_size()).sum()
+    }
 }

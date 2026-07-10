@@ -3,7 +3,7 @@ use std::{path::Path, sync::Arc};
 use crate::{
     batch::Batch,
     command::Command,
-    message::consumer::FetchResponse,
+    message::consumer::{FetchResponse, PartitionResponse},
     partition::{
         actor::PartitionActor, config::PartitionConfig, handle::PartitionHandle,
         state::PartitionState,
@@ -78,17 +78,24 @@ impl Partition {
         }
     }
 
-    pub(crate) fn fetch(
+    pub(crate) async fn fetch(
         &self,
         partition: crate::message::consumer::FetchPartition,
         replica_id: i32,
-    ) -> FetchResponse {
-        // send update
-        self.handle.send(Command::ReplicaRequest {
-            broker_id: (),
-            record: (),
-        });
-        todo!()
+    ) -> PartitionResponse {
+        let res = self.handle.fetch(self.id, fetch_req);
+
+        if replica_id >= 0 {
+            self.handle
+                .send(Command::ReplicaFetch {
+                    replica_id: replica_id as u32,
+                    leo: res.log_start_offset,
+                })
+                .await
+                .unwrap();
+        }
+
+        res
     }
 }
 

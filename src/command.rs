@@ -15,9 +15,7 @@ pub enum Command {
         batch: Batch,
         done: oneshot::Sender<()>,
     },
-    Fetch {
-        
-    },
+    Fetch {},
     ReplicaAck {
         broker_id: String,
         offset: u64,
@@ -26,6 +24,10 @@ pub enum Command {
     ReplicaRequest {
         broker_id: String,
         record: Record,
+    },
+    ReplicaFetch {
+        replica_id: u32,
+        leo: u64,
     },
     Shutdown,
 }
