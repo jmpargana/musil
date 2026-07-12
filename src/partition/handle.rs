@@ -11,17 +11,17 @@ use tokio::{
 
 use crate::{
     partition::{
-        actor::PartitionActor,
-        command::PartitionCommand,
-        config::PartitionConfig,
+        actor::PartitionActor, command::PartitionCommand, config::PartitionConfig,
         state::PartitionState,
     },
-    protocol::fetch::{
-        request::fetch_partition::FetchPartition,
-        response::partition_response::PartitionResponse,
+    protocol::{
+        fetch::{
+            request::fetch_partition::FetchPartition,
+            response::partition_response::PartitionResponse,
+        },
+        produce::{acks::Acks, response::partition_response::ProducePartitionResponse},
     },
-    segment::metadata::RecordLocation,
-    storage::record::Record,
+    storage::record_batch::RecordBatch,
 };
 
 use std::path::Path;
@@ -71,16 +71,18 @@ impl PartitionHandle {
     }
 
     // TODO: respond based on ack
-    pub async fn append(&self, record: Record) {
-        let (tx, rx) = oneshot::channel();
-        self.send(PartitionCommand::Append { record, done: tx })
-            .await
-            .unwrap();
-        rx.await.unwrap();
-    }
+    pub async fn append(&self, record: RecordBatch, acks: Acks) -> ProducePartitionResponse {
+        let (tx, rx) = oneshot::channel::<ProducePartitionResponse>();
 
-    pub fn find_pos(&self, offset: u64) -> Option<RecordLocation> {
-        self.state.load_full().find_pos(offset)
+        self.send(PartitionCommand::Append {
+            record,
+            acks,
+            done: tx,
+        })
+        .await
+        .unwrap();
+
+        rx.await.unwrap()
     }
 
     pub async fn fetch(&self, fetch_req: &FetchPartition, replica_id: i32) -> PartitionResponse {

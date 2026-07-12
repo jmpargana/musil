@@ -1,8 +1,4 @@
-use std::{
-    fs::File,
-    os::unix::fs::FileExt,
-    sync::Arc,
-};
+use std::{fs::File, os::unix::fs::FileExt, sync::Arc};
 
 use memmap::{Mmap, MmapOptions};
 
@@ -44,7 +40,10 @@ impl SegmentView {
         }
     }
 
-    // TODO: need to understand if record needs to be deserialized
+    // TODO: record doesn't need to be fully deseralized. Neither does record batch (if full).
+    // Even if copying the byte array to a `bytes::Bytes`, copying data to user-space is unnecessary.
+    // Instead I should just pass FD pointers around so `connection` calls `sendfile`.
+    // This behavior is equivalent to kafka's `transferTo` function call.
     pub fn fetch(&self, req: &FetchPartition) -> Vec<RecordBatch> {
         let Some(idx) = self.find_physical_position(req.fetch_offset) else {
             return vec![];
@@ -75,9 +74,6 @@ impl SegmentView {
             records: batch.records,
         }];
 
-        // NOTE: Ideally full batches should not be copied into a response.
-        // Instead a fd should be passed to the network layer, where `sendfile` syscall is invoked.
-
         // TODO: for sure there's a cleaner way of writing this code.
         let mut total_bytes = actual_batch_length;
         pos += 8 + batch.batch_length as u64;
@@ -90,57 +86,6 @@ impl SegmentView {
         }
 
         batches
-    }
-
-    #[deprecated(note = "use fetch instead")]
-    pub fn find_pos(&self, target_offset: u64) -> Option<RecordLocation> {
-        if self.index_count == 0 {
-            return None;
-        }
-
-        let mut lo = 0usize;
-        let mut hi = self.index_count - 1;
-
-        while lo <= hi {
-            let mid = lo + (hi - lo) / 2;
-            let base = mid * INDEX_ENTRY_SIZE;
-
-            let offset = u64::from_le_bytes(self.index[base..base + 8].try_into().unwrap());
-
-            if offset <= target_offset {
-                lo = mid + 1;
-            } else {
-                if mid == 0 {
-                    break;
-                }
-                hi = mid - 1;
-            }
-        }
-
-        if lo == 0 {
-            return None;
-        }
-
-        let entry = lo - 1;
-        let base = entry * INDEX_ENTRY_SIZE;
-
-        let mut offset = u64::from_le_bytes(self.index[base..base + 8].try_into().unwrap());
-        let mut pos = u64::from_le_bytes(self.index[base + 8..base + 16].try_into().unwrap());
-
-        // linear scan in log file using offsets (pread)
-        while offset < target_offset {
-            let mut len_buf = [0u8; 4];
-            self.log
-                .read_at(&mut len_buf, pos)
-                .expect("physical byte position should exist");
-
-            let size = u32::from_le_bytes(len_buf) as u64;
-
-            pos += 4 + size;
-            offset += 1;
-        }
-
-        Some(pos)
     }
 
     pub fn with_metadata(&self, index_count: usize, size: usize) -> Arc<Self> {
@@ -264,6 +209,7 @@ fn read_u64_at(file: &File, pos: u64) -> std::io::Result<u64> {
     Ok(u64::from_le_bytes(buf))
 }
 
+// TODO: move this to segment iter file?
 struct RecordIter<'a> {
     bytes: &'a [u8],
     pos: usize,

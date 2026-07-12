@@ -16,6 +16,10 @@ impl RecordBatch {
         // or 8 + 4 + 4 + self.records.len()
     }
 
+    pub fn update_base_offset(&mut self, offset: u64) {
+        self.base_offset = offset;
+    }
+
     pub fn encode_header(&self) -> Bytes {
         let mut buf = BytesMut::new();
 

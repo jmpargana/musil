@@ -50,8 +50,8 @@ impl Frame {
                     // FIXME: bug in reading and writing size, id and length
                     buf.put_u32(t.partitions.len() as u32);
                     for p in &t.partitions {
-                        buf.put_u16(p.partition_id as u16);
-                        buf.copy_from_slice(&p.batch);
+                        buf.put_u16(p.index as u16);
+                        buf.copy_from_slice(&p.records);
                     }
                 }
             }

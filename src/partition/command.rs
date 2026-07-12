@@ -1,11 +1,15 @@
 use tokio::sync::oneshot;
 
-use crate::storage::record::Record;
+use crate::{
+    protocol::produce::{acks::Acks, response::partition_response::ProducePartitionResponse},
+    storage::{record::Record, record_batch::RecordBatch},
+};
 
 pub enum PartitionCommand {
     Append {
-        record: Record,
-        done: oneshot::Sender<()>,
+        record: RecordBatch,
+        acks: Acks,
+        done: oneshot::Sender<ProducePartitionResponse>,
     },
     UpdateReplicaLeo {
         replica_id: u32,

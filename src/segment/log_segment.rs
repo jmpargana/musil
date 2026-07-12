@@ -82,7 +82,7 @@ impl LogSegment {
         })
     }
 
-    pub fn append_batch(&mut self, batch: RecordBatch) -> io::Result<()> {
+    pub fn append_batch(&mut self, batch: &RecordBatch) -> io::Result<()> {
         let log_pos = self.log_file.metadata()?.len();
 
         // batch is already encoded
@@ -109,41 +109,6 @@ impl LogSegment {
 
     pub fn fetch(&self, partition_request: &FetchPartition) -> Vec<RecordBatch> {
         self.segment.clone().fetch(partition_request)
-    }
-
-    #[deprecated(note = "use append_batch instead")]
-    pub fn append(&mut self, record: Record) -> io::Result<usize> {
-        let buf = record.encode();
-
-        let log_pos = self.log_file.metadata()?.len();
-
-        self.log_file.write_all(&(buf.len() as u32).to_le_bytes())?;
-        self.log_file.write_all(&buf)?;
-        self.log_file.flush()?;
-
-        self.bytes_since_last_index += 4 + buf.len();
-
-        if self.bytes_since_last_index >= self.index_threshold_bytes {
-            let offset = record.offset.expect("record must have offset");
-
-            let pos = self.index_write_pos;
-
-            self.index_file[pos..pos + 8].copy_from_slice(&offset.to_le_bytes());
-            self.index_file[pos + 8..pos + 16].copy_from_slice(&log_pos.to_le_bytes());
-            self.index_file.flush()?; // TODO: maybe needs to be async or not there at all
-
-            self.index_write_pos += INDEX_ENTRY_SIZE;
-            self.index_count += 1;
-            self.bytes_since_last_index = 0;
-        }
-
-        // TODO: should return record size or total?
-        self.size += buf.len() + 4;
-        Ok(buf.len() + 4)
-    }
-
-    pub fn find_pos(&self, target_offset: u64) -> Option<u64> {
-        self.segment.clone().find_pos(target_offset)
     }
 
     pub fn publish(&mut self) -> Arc<SegmentView> {

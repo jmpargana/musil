@@ -2,8 +2,7 @@ use std::{cmp::max, sync::Arc};
 
 use crate::{
     protocol::fetch::{
-        request::fetch_partition::FetchPartition,
-        response::partition_response::PartitionResponse,
+        request::fetch_partition::FetchPartition, response::partition_response::PartitionResponse,
     },
     replica::ReplicaMetadata,
     segment::metadata::{RecordLocation, SegmentView},
@@ -49,38 +48,12 @@ impl PartitionState {
         }
     }
 
-    pub fn find_pos(&self, offset: u64) -> Option<RecordLocation> {
-        if offset > self.high_watermark {
-            return None;
-        }
-        let idx = self
-            .segments
-            .partition_point(|segment| segment.base_offset <= offset);
-        // FIXME: something feels off about this
-        #[allow(deprecated)]
-        self.segments[idx - 1].find_pos(offset)
-    }
-
-    pub fn ack_replica2(mut self, replica_id: u32, leo: u64) -> Self {
+    pub fn ack_replica(mut self, replica_id: u32, leo: u64) -> Self {
         let replicas = Arc::make_mut(&mut self.replicas);
 
         if let Some(ref mut replica) = replicas.iter_mut().find(|r| r.replica_id == replica_id) {
             // FIXME: what if an ack for a more recent offset arrived?
             replica.log_end_offset = max(replica.log_end_offset, leo);
-        }
-
-        self.high_watermark = replicas.iter().map(|r| r.log_end_offset).min().unwrap();
-
-        self
-    }
-
-    #[deprecated(note = "invalid flow, use ack_replica2 instead")]
-    pub fn ack_replica(mut self, broker_id: String, offset: u64) -> Self {
-        let replicas = Arc::make_mut(&mut self.replicas);
-
-        if let Some(ref mut replica) = replicas.iter_mut().find(|r| r.broker_id == broker_id) {
-            // FIXME: what if an ack for a more recent offset arrived?
-            replica.log_end_offset = max(replica.log_end_offset, offset);
         }
 
         self.high_watermark = replicas.iter().map(|r| r.log_end_offset).min().unwrap();

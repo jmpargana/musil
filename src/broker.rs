@@ -20,6 +20,12 @@ pub struct Broker {
 }
 
 impl Broker {
+    pub fn new() -> Self {
+        // take config
+    }
+
+    pub fn update(&mut self) {}
+
     pub fn partition(&self, topic: &str, partition: u16) -> io::Result<&Arc<PartitionHandle>> {
         self.partitions
             .get(&TopicPartition {
@@ -37,6 +43,7 @@ impl Broker {
         }
     }
 
+    // TODO: refactor shared flow into single method
     async fn handle_fetch(&self, req: &Frame, body: &FetchRequest) -> io::Result<Frame> {
         let now = Instant::now();
         let mut topic_responses = Vec::new();
@@ -68,7 +75,21 @@ impl Broker {
         Ok(Frame { size, header, body })
     }
 
-    async fn handle_produce(&self, _body: &ProduceRequest) -> io::Result<Frame> {
-        todo!()
+    async fn handle_produce(&self, body: &ProduceRequest) -> io::Result<Frame> {
+        let mut topic_responses = Vec::new();
+
+        for t in &body.topics {
+            let mut part_responses = Vec::new();
+            for p in &t.partitions {
+                let partition = self.partition(&t.topic, p.index as u16)?;
+                let part_res = partition.append(p.records, body.acks).await;
+                part_responses.push(part_res);
+            }
+            topic_responses.push(part_responses);
+        }
+
+        // build response here
+
+        Ok(Frame { size, header, body })
     }
 }

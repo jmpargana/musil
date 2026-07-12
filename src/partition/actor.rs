@@ -1,13 +1,21 @@
+use std::collections::VecDeque;
 use std::io;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::partition::command::PartitionCommand;
 use crate::partition::state::PartitionState;
+use crate::protocol::produce::acks::Acks;
+use crate::protocol::produce::response::partition_response::ProducePartitionResponse;
 use crate::segment::config::SegmentConfigBuilder;
 use crate::segment::log_segment::LogSegment;
+
+struct PendingResponse {
+    hw: u64,
+    done: oneshot::Sender<ProducePartitionResponse>,
+}
 
 pub struct PartitionActor {
     rx: mpsc::Receiver<PartitionCommand>,
@@ -19,6 +27,11 @@ pub struct PartitionActor {
 
     // immutable data
     snapshot: Arc<ArcSwap<PartitionState>>,
+
+    // As of now, this only works with Acks::All. If we want to have any number between 2..all,
+    // custom logic in update replica is gonna be needed.
+    // probably an extra variable should cut it.
+    acks_pending_replication: VecDeque<PendingResponse>,
 }
 
 impl PartitionActor {
@@ -52,23 +65,34 @@ impl PartitionActor {
             active,
             segment_bytes,
             snapshot,
+            acks_pending_replication: VecDeque::new(), // TODO: add capacity based on replica size
         })
     }
 
     pub async fn run(&mut self) {
         while let Some(c) = self.rx.recv().await {
             match c {
-                PartitionCommand::Append { mut record, done } => {
+                PartitionCommand::Append {
+                    ref mut record,
+                    acks,
+                    done,
+                } => {
+                    // Kind of a hacky solution. The problem is that execution must continue with early send,
+                    // which introduces a move of the `done` value.
+                    // Wrapping it in an `Option<done>` allows the compiler to trust ownership can be moved safely.
+                    let mut done = Some(done);
+
+                    if matches!(acks, Acks::None) {
+                        done.take().unwrap().send(()).unwrap();
+                    }
+
                     let state = self.snapshot.load_full();
                     let mut leo = state.log_end_offset;
 
-                    record.add_offset(leo);
+                    self.active.append_batch(record);
+                    record.update_base_offset(leo);
 
-                    // TODO: handle error
-                    #[allow(deprecated)]
-                    self.active.append(record.clone()).unwrap();
-
-                    leo += 1;
+                    leo += record.records_count as u64;
 
                     let current_active = self.active.publish();
                     let state = self.snapshot.load_full();
@@ -95,8 +119,6 @@ impl PartitionActor {
                         hw += 1;
                     }
 
-                    // TODO: handle replication for acks=all
-
                     let next = Arc::new(PartitionState {
                         segments: segments.into(),
                         high_watermark: hw,
@@ -106,14 +128,33 @@ impl PartitionActor {
 
                     self.snapshot.store(next);
 
-                    done.send(()).unwrap();
+                    match &acks {
+                        Acks::None => unreachable!(), // if, then matched above
+                        Acks::Leader => {
+                            done.take().unwrap().send(()).unwrap();
+                        }
+                        Acks::All => {
+                            self.acks_pending_replication.push_back(PendingResponse {
+                                hw: leo,
+                                done: done.take().unwrap(),
+                            });
+                        }
+                    }
                 }
                 PartitionCommand::Shutdown => {
                     break;
                 }
                 PartitionCommand::UpdateReplicaLeo { replica_id, leo } => {
                     let state = self.snapshot.load_full();
-                    let next = (*state).clone().ack_replica2(replica_id, leo);
+                    let next = (*state).clone().ack_replica(replica_id, leo);
+                    while let Some(ack) = self.acks_pending_replication.pop_front() {
+                        if ack.hw > next.high_watermark {
+                            self.acks_pending_replication.push_front(ack);
+                            break;
+                        }
+
+                        ack.done.send(()).unwrap();
+                    }
                     self.snapshot.store(Arc::new(next));
                 }
             }
