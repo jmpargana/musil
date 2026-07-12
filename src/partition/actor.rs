@@ -14,12 +14,15 @@ use crate::segment::log_segment::LogSegment;
 
 struct PendingResponse {
     hw: u64,
+    base_offset: u64,
     done: oneshot::Sender<ProducePartitionResponse>,
 }
 
 pub struct PartitionActor {
     rx: mpsc::Receiver<PartitionCommand>,
     base_dir: String,
+    partition_id: u16,
+    broker_id: u16,
     segment_bytes: usize,
 
     // mutable data
@@ -82,12 +85,23 @@ impl PartitionActor {
                     // Wrapping it in an `Option<done>` allows the compiler to trust ownership can be moved safely.
                     let mut done = Some(done);
 
-                    if matches!(acks, Acks::None) {
-                        done.take().unwrap().send(()).unwrap();
-                    }
-
                     let state = self.snapshot.load_full();
                     let mut leo = state.log_end_offset;
+                    let base_offset = leo;
+
+                    let partition_response = ProducePartitionResponse::new(
+                        self.partition_id as u32,
+                        base_offset,
+                        self.broker_id as i32,
+                    );
+
+                    if matches!(acks, Acks::None) {
+                        done.take()
+                            .unwrap()
+                            // might need the Option trick to bypass clone here.
+                            .send(partition_response.clone())
+                            .unwrap();
+                    }
 
                     self.active.append_batch(record);
                     record.update_base_offset(leo);
@@ -131,11 +145,12 @@ impl PartitionActor {
                     match &acks {
                         Acks::None => unreachable!(), // if, then matched above
                         Acks::Leader => {
-                            done.take().unwrap().send(()).unwrap();
+                            done.take().unwrap().send(partition_response).unwrap();
                         }
                         Acks::All => {
                             self.acks_pending_replication.push_back(PendingResponse {
                                 hw: leo,
+                                base_offset,
                                 done: done.take().unwrap(),
                             });
                         }
@@ -153,7 +168,13 @@ impl PartitionActor {
                             break;
                         }
 
-                        ack.done.send(()).unwrap();
+                        ack.done
+                            .send(ProducePartitionResponse::new(
+                                self.partition_id as u32,
+                                ack.base_offset,
+                                self.broker_id as i32,
+                            ))
+                            .unwrap();
                     }
                     self.snapshot.store(Arc::new(next));
                 }

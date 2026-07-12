@@ -76,6 +76,7 @@ impl Broker {
     }
 
     async fn handle_produce(&self, body: &ProduceRequest) -> io::Result<Frame> {
+        let now = Instant::now();
         let mut topic_responses = Vec::new();
 
         for t in &body.topics {

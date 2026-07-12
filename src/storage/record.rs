@@ -5,24 +5,21 @@ use std::{
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Record {
-    pub offset: Option<u64>, // initially set to None, until partition handler assigns
+    // offset delta in relation to `base_offset` in batch.
+    pub offset_delta: u64,
     pub timestamp: u64,
     pub key: Vec<u8>,
     pub value: Vec<u8>,
 }
 
 impl Record {
-    pub fn new(key: &[u8], value: &[u8]) -> Self {
+    pub fn new(offset_delta: u64, key: &[u8], value: &[u8]) -> Self {
         Self {
-            offset: None,
+            offset_delta,
             timestamp: UNIX_EPOCH.elapsed().unwrap().as_secs(),
             key: key.to_vec(),
             value: value.to_vec(),
         }
-    }
-
-    pub fn add_offset(&mut self, offset: u64) {
-        self.offset = Some(offset);
     }
 
     pub fn encode(&self) -> Vec<u8> {
@@ -35,10 +32,11 @@ impl Record {
         Record::decode_raw(buf).map(|it| it.0)
     }
 
+    // TODO: refactor with `bytes::BytesMut`
     pub fn decode_raw(buf: &[u8]) -> io::Result<(Record, usize)> {
         let mut pos = 0;
 
-        let offset = u64::from_le_bytes(buf[pos..pos + 8].try_into().unwrap());
+        let offset_delta = u64::from_le_bytes(buf[pos..pos + 8].try_into().unwrap());
         pos += 8;
 
         let timestamp = u64::from_le_bytes(buf[pos..pos + 8].try_into().unwrap());
@@ -57,7 +55,7 @@ impl Record {
 
         Ok((
             Record {
-                offset: Some(offset),
+                offset_delta,
                 timestamp,
                 key,
                 value,
@@ -69,7 +67,7 @@ impl Record {
     fn write_to<W: Write>(&self, writer: &mut W) -> io::Result<usize> {
         let mut size: usize = 0;
 
-        let temp = &self.offset.unwrap().to_le_bytes(); // must be Some by now
+        let temp = &self.offset_delta.to_le_bytes(); // must be Some by now
         writer.write_all(temp);
         size += temp.len();
 

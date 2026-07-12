@@ -51,7 +51,8 @@ impl Frame {
                     buf.put_u32(t.partitions.len() as u32);
                     for p in &t.partitions {
                         buf.put_u16(p.index as u16);
-                        buf.copy_from_slice(&p.records);
+                        buf.copy_from_slice(&p.records.encode_header());
+                        buf.copy_from_slice(&p.records.records);
                     }
                 }
             }

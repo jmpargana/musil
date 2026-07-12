@@ -1,8 +1,10 @@
+#[derive(Debug, Clone)]
 pub struct CurrentLeader {
     pub leader_id: i32,
     pub leader_epoch: u32,
 }
 
+#[derive(Debug, Clone)]
 pub struct ProducePartitionResponse {
     pub index: u32, // partition id
     pub error_code: u16,
@@ -12,4 +14,22 @@ pub struct ProducePartitionResponse {
     // record_errors
     pub error_message: String,
     pub current_leader: Option<CurrentLeader>,
+}
+
+impl ProducePartitionResponse {
+    pub fn new(index: u32, base_offset: u64, broker_id: i32) -> Self {
+        // TODO: fill missing fields
+        Self {
+            index,
+            error_code: 0,
+            base_offset,
+            log_append_time_ms: 0,
+            log_start_offset: 0,
+            error_message: "".to_string(),
+            current_leader: Some(CurrentLeader {
+                leader_id: broker_id,
+                leader_epoch: 0,
+            }),
+        }
+    }
 }

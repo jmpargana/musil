@@ -53,14 +53,16 @@ impl SegmentView {
             return vec![];
         };
 
-        let batch = RecordBatch::decode(&self.log, pos);
+        let batch = RecordBatch::decode_file(&self.log, pos);
 
         let mut record_iter = RecordIter {
             bytes: &batch.records,
             pos: 0,
         };
         let starting_pos = record_iter
-            .find_map(|(pos, record)| (record.offset.unwrap() == req.fetch_offset).then_some(pos))
+            .find_map(|(pos, record)| {
+                (record.offset_delta.unwrap() == req.fetch_offset).then_some(pos)
+            })
             .unwrap();
 
         let actual_batch_length = batch.batch_length - starting_pos as u32;
@@ -78,7 +80,7 @@ impl SegmentView {
         let mut total_bytes = actual_batch_length;
         pos += 8 + batch.batch_length as u64;
         while total_bytes < req.partition_max_bytes {
-            let batch = RecordBatch::decode(&self.log, pos);
+            let batch = RecordBatch::decode_file(&self.log, pos);
             total_bytes += batch.batch_length;
             if total_bytes < req.partition_max_bytes {
                 batches.push(batch);

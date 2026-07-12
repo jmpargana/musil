@@ -2,13 +2,16 @@ use std::time::Duration;
 
 use bytes::{Buf, Bytes};
 
-use crate::protocol::{
-    Frame,
-    header::{ApiKey, RequestHeader},
-    produce::request::{
-        produce_partition::ProducePartition, produce_request::ProduceRequest,
-        produce_topic::ProduceTopic,
+use crate::{
+    protocol::{
+        Frame,
+        header::{ApiKey, RequestHeader},
+        produce::request::{
+            produce_partition::ProducePartition, produce_request::ProduceRequest,
+            produce_topic::ProduceTopic,
+        },
     },
+    storage::record_batch::RecordBatch,
 };
 
 use super::body::FrameBody;
@@ -87,12 +90,15 @@ impl RequestDecoder {
             for _ in 0..partition_length {
                 let partition_id = buf.get_u16();
 
-                let batch_len = buf.get_u32() as usize;
-                let batch = buf.split_to(batch_len);
+                // FIXME: this is most likely wrong. We need to keep iterating, so position needs to change.
+                // Instead we should use Bytes.
+                // I need to figure out if you pass a reference, if you pass Bytes (because it has a reference)
+                // Or if I return Bytes back to reassign, like a move + move.
+                let record_batch = RecordBatch::decode(&buf, 0);
 
                 partitions.push(ProducePartition {
                     index: partition_id,
-                    records: batch,
+                    records: record_batch,
                 });
             }
 
