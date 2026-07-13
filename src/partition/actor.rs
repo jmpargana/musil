@@ -90,7 +90,7 @@ impl PartitionActor {
         let mut segments = state.segments.as_ref().to_vec();
         segments.push(active.publish());
 
-        let next = Arc::new((*state).clone().consume(segments.into(), 1, 0));
+        let next = Arc::new((*state).clone().consume(segments.into(), 0, 0));
         snapshot.store(next);
 
         Ok(Self {
@@ -103,6 +103,11 @@ impl PartitionActor {
             partition_id: config.partition_id,
             segment_bytes: config.segment_bytes,
         })
+    }
+
+    #[cfg(test)]
+    pub fn snapshot(&self) -> Arc<ArcSwap<PartitionState>> {
+        self.snapshot.clone()
     }
 
     pub async fn run(&mut self) {
@@ -128,14 +133,6 @@ impl PartitionActor {
                         self.broker_id as i32,
                     );
 
-                    if matches!(acks, Acks::None) {
-                        done.take()
-                            .unwrap()
-                            // might need the Option trick to bypass clone here.
-                            .send(partition_response.clone())
-                            .unwrap();
-                    }
-
                     record.update_base_offset(leo);
                     self.active.append_batch(&record).unwrap();
 
@@ -151,6 +148,7 @@ impl PartitionActor {
                         let cfg = SegmentConfigBuilder::default()
                             .base_dir(self.base_dir.to_string())
                             .base_offset(leo)
+                            .segment_bytes(self.segment_bytes)
                             .build()
                             .unwrap();
 
@@ -163,7 +161,7 @@ impl PartitionActor {
 
                     let mut hw = state.high_watermark;
                     if state.replicas.is_empty() {
-                        hw += 1;
+                        hw += record.records_count as u64;
                     }
 
                     let next = Arc::new(PartitionState {
@@ -176,8 +174,7 @@ impl PartitionActor {
                     self.snapshot.store(next);
 
                     match &acks {
-                        Acks::None => unreachable!(), // if, then matched above
-                        Acks::Leader => {
+                        Acks::None | Acks::Leader => {
                             done.take().unwrap().send(partition_response).unwrap();
                         }
                         Acks::All => {
@@ -213,5 +210,252 @@ impl PartitionActor {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::replica::ReplicaMetadata;
+    use crate::storage::record_batch::RecordBatch;
+    use bytes::Bytes;
+    use tempdir::TempDir;
+    use tokio::sync::oneshot;
+
+    fn make_dir() -> TempDir {
+        TempDir::new("rafka-actor-test").unwrap()
+    }
+
+    fn make_batch(base_offset: u64, records_count: u32, payload: &[u8]) -> RecordBatch {
+        let batch_length = 4 + payload.len() as u32;
+        RecordBatch {
+            base_offset,
+            batch_length,
+            records_count,
+            records: Bytes::copy_from_slice(payload),
+        }
+    }
+
+    fn spawn_actor(
+        dir: &TempDir,
+        replicas: Vec<ReplicaMetadata>,
+        segment_bytes: usize,
+    ) -> (
+        mpsc::Sender<PartitionCommand>,
+        Arc<ArcSwap<PartitionState>>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let (tx, rx) = mpsc::channel(64);
+        let state = Arc::new(ArcSwap::from_pointee(PartitionState::new(replicas)));
+        let cfg = PartitionActorConfigBuilder::default()
+            .base_dir(dir.path().to_str().unwrap().to_string())
+            .segment_bytes(segment_bytes)
+            .broker_id(1)
+            .partition_id(0)
+            .build()
+            .unwrap();
+        let mut actor = PartitionActor::new(rx, state.clone(), cfg).unwrap();
+        let handle = tokio::spawn(async move { actor.run().await });
+        (tx, state, handle)
+    }
+
+    async fn append(
+        tx: &mpsc::Sender<PartitionCommand>,
+        batch: RecordBatch,
+        acks: Acks,
+    ) -> ProducePartitionResponse {
+        let (done_tx, done_rx) = oneshot::channel();
+        tx.send(PartitionCommand::Append {
+            record: batch,
+            acks,
+            done: done_tx,
+        })
+        .await
+        .unwrap();
+        done_rx.await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn high_watermark_advances_by_records_count_not_one() {
+        let dir = make_dir();
+        let (tx, state, handle) = spawn_actor(&dir, vec![], 1 << 20);
+
+        let batch = make_batch(0, 5, b"aaaaa");
+        append(&tx, batch, Acks::Leader).await;
+
+        let snap = state.load_full();
+        // With the bug: hw == 1. Fixed: hw == 5.
+        assert_eq!(
+            snap.high_watermark, 5,
+            "hw must equal records_count (5), not 1"
+        );
+        assert_eq!(snap.log_end_offset, 5);
+
+        tx.send(PartitionCommand::Shutdown).await.unwrap();
+        handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn leo_accumulates_across_multiple_appends() {
+        let dir = make_dir();
+        let (tx, state, handle) = spawn_actor(&dir, vec![], 1 << 20);
+
+        append(&tx, make_batch(0, 3, b"aaa"), Acks::Leader).await;
+        append(&tx, make_batch(3, 2, b"bb"), Acks::Leader).await;
+
+        let snap = state.load_full();
+        assert_eq!(snap.log_end_offset, 5);
+        // With the bug hw==2 (1+1). Fixed: hw==5.
+        assert_eq!(snap.high_watermark, 5);
+
+        tx.send(PartitionCommand::Shutdown).await.unwrap();
+        handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn acks_none_responds_immediately() {
+        let dir = make_dir();
+        let (tx, state, handle) = spawn_actor(&dir, vec![], 1 << 20);
+
+        let batch = make_batch(0, 1, b"x");
+        let resp = append(&tx, batch, Acks::None).await;
+
+        assert_eq!(resp.index, 0);
+        assert_eq!(resp.base_offset, 0);
+
+        tx.send(PartitionCommand::Shutdown).await.unwrap();
+        handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn acks_leader_responds_with_correct_base_offset() {
+        let dir = make_dir();
+        let (tx, state, handle) = spawn_actor(&dir, vec![], 1 << 20);
+
+        let r1 = append(&tx, make_batch(0, 2, b"ab"), Acks::Leader).await;
+        assert_eq!(r1.base_offset, 0);
+
+        let r2 = append(&tx, make_batch(2, 3, b"cde"), Acks::Leader).await;
+        assert_eq!(r2.base_offset, 2);
+
+        tx.send(PartitionCommand::Shutdown).await.unwrap();
+        handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn segment_rotates_and_state_has_two_segments() {
+        let dir = make_dir();
+        // segment_bytes=1 forces rotation after every batch (batch_length > 0)
+        let (tx, state, handle) = spawn_actor(&dir, vec![], 1);
+
+        append(&tx, make_batch(0, 1, b"x"), Acks::Leader).await;
+        append(&tx, make_batch(1, 1, b"y"), Acks::Leader).await;
+
+        let snap = state.load_full();
+        assert!(
+            snap.segments.len() >= 2,
+            "expected >=2 segments after rotation, got {}",
+            snap.segments.len()
+        );
+
+        tx.send(PartitionCommand::Shutdown).await.unwrap();
+        handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn acks_all_waits_for_replica_ack() {
+        let dir = make_dir();
+        let replica = ReplicaMetadata::empty("broker-2".to_string(), 42);
+        let (tx, state, handle) = spawn_actor(&dir, vec![replica], 1 << 20);
+
+        let batch = make_batch(0, 1, b"z");
+        let (done_tx, done_rx) = oneshot::channel();
+        tx.send(PartitionCommand::Append {
+            record: batch,
+            acks: Acks::All,
+            done: done_tx,
+        })
+        .await
+        .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        let snap = state.load_full();
+        assert_eq!(
+            snap.high_watermark, 0,
+            "hw must not advance until replica acks"
+        );
+
+        tx.send(PartitionCommand::UpdateReplicaLeo {
+            replica_id: 42,
+            leo: 1,
+        })
+        .await
+        .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        let snap = state.load_full();
+        assert_eq!(snap.high_watermark, 1);
+
+        tx.send(PartitionCommand::Shutdown).await.unwrap();
+        handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn acks_all_flushes_in_fifo_order() {
+        let dir = make_dir();
+        let replica = ReplicaMetadata::empty("broker-2".to_string(), 99);
+        let (tx, state, handle) = spawn_actor(&dir, vec![replica], 1 << 20);
+
+        let (tx1, rx1) = oneshot::channel();
+        let (tx2, rx2) = oneshot::channel();
+
+        tx.send(PartitionCommand::Append {
+            record: make_batch(0, 1, b"a"),
+            acks: Acks::All,
+            done: tx1,
+        })
+        .await
+        .unwrap();
+
+        tx.send(PartitionCommand::Append {
+            record: make_batch(1, 1, b"b"),
+            acks: Acks::All,
+            done: tx2,
+        })
+        .await
+        .unwrap();
+
+        tx.send(PartitionCommand::UpdateReplicaLeo {
+            replica_id: 99,
+            leo: 2,
+        })
+        .await
+        .unwrap();
+
+        let r1 = tokio::time::timeout(std::time::Duration::from_millis(200), rx1)
+            .await
+            .expect("r1 timed out")
+            .unwrap();
+        let r2 = tokio::time::timeout(std::time::Duration::from_millis(200), rx2)
+            .await
+            .expect("r2 timed out")
+            .unwrap();
+
+        assert_eq!(r1.base_offset, 0);
+        assert_eq!(r2.base_offset, 1);
+
+        tx.send(PartitionCommand::Shutdown).await.unwrap();
+        handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn shutdown_completes() {
+        let dir = make_dir();
+        let (tx, _state, handle) = spawn_actor(&dir, vec![], 1 << 20);
+        tx.send(PartitionCommand::Shutdown).await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(1), handle)
+            .await
+            .expect("actor did not shut down in time")
+            .unwrap();
     }
 }

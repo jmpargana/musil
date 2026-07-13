@@ -115,7 +115,7 @@ mod tests {
             .unwrap()
             .to_string();
         let cfg = PartitionConfigBuilder::default().build().unwrap();
-        let handle = PartitionHandle::spawn("test".to_string(), 0, dir, cfg);
+        // let handle = PartitionHandle::spawn("test".to_string(), 0, dir, cfg);
         // let record = Record::new(b"hello", b"world");
 
         // let offset = handle.find_pos(1);
@@ -139,7 +139,7 @@ mod tests {
             .segment_bytes(3)
             .build()
             .unwrap();
-        let handle = PartitionHandle::spawn("test".to_string(), 0, dir, cfg);
+        // let handle = PartitionHandle::spawn("test".to_string(), 0, dir, cfg);
         // let record = Record::new(b"hello", b"world");
 
         // let offset = handle.find_pos(1);

@@ -36,19 +36,19 @@ impl Record {
     pub fn decode_raw(buf: &[u8]) -> io::Result<(Record, usize)> {
         let mut pos = 0;
 
-        let offset_delta = u64::from_le_bytes(buf[pos..pos + 8].try_into().unwrap());
+        let offset_delta = u64::from_be_bytes(buf[pos..pos + 8].try_into().unwrap());
         pos += 8;
 
-        let timestamp = u64::from_le_bytes(buf[pos..pos + 8].try_into().unwrap());
+        let timestamp = u64::from_be_bytes(buf[pos..pos + 8].try_into().unwrap());
         pos += 8;
 
-        let key_size = u32::from_le_bytes(buf[pos..pos + 4].try_into().unwrap()) as usize;
+        let key_size = u32::from_be_bytes(buf[pos..pos + 4].try_into().unwrap()) as usize;
         pos += 4;
 
         let key = buf[pos..pos + key_size].to_vec();
         pos += key_size;
 
-        let value_size = u32::from_le_bytes(buf[pos..pos + 4].try_into().unwrap()) as usize;
+        let value_size = u32::from_be_bytes(buf[pos..pos + 4].try_into().unwrap()) as usize;
         pos += 4;
 
         let value = buf[pos..pos + value_size].to_vec();
@@ -67,21 +67,21 @@ impl Record {
     fn write_to<W: Write>(&self, writer: &mut W) -> io::Result<usize> {
         let mut size: usize = 0;
 
-        let temp = &self.offset_delta.to_le_bytes(); // must be Some by now
+        let temp = &self.offset_delta.to_be_bytes(); // must be Some by now
         writer.write_all(temp);
         size += temp.len();
 
-        let temp = &self.timestamp.to_le_bytes();
+        let temp = &self.timestamp.to_be_bytes();
         writer.write_all(temp);
         size += temp.len();
 
-        let temp = &(self.key.len() as u32).to_le_bytes();
+        let temp = &(self.key.len() as u32).to_be_bytes();
         writer.write_all(temp);
         size += temp.len();
         writer.write_all(&self.key);
         size += self.key.len();
 
-        let temp = &(self.value.len() as u32).to_le_bytes();
+        let temp = &(self.value.len() as u32).to_be_bytes();
         writer.write_all(temp);
         size += temp.len();
         writer.write_all(&self.value);
@@ -97,9 +97,7 @@ mod tests {
 
     #[test]
     fn decode_encode_e2e() {
-        let mut record = Record::new(b"hello", b"world");
-        record.add_offset(1);
-
+        let record = Record::new(10, b"hello", b"world");
         let bytes = record.encode();
         let decoded = Record::decode(&bytes).unwrap();
         assert_eq!(record, decoded);
