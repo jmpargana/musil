@@ -147,6 +147,12 @@ impl SegmentView {
 
         // linear scan in log file using offsets (pread)
         while offset < target_offset {
+            if pos >= self.size as u64 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "offset beyond end of segment",
+                ));
+            }
             let _ = read_u64_at(&self.log, pos)?;
             let batch_length = read_u32_at(&self.log, pos + 8)?;
             let records_count = read_u32_at(&self.log, pos + 12)?;
