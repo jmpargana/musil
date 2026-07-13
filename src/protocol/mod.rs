@@ -8,6 +8,7 @@ use crate::protocol::{
 
 pub mod body;
 pub mod codec;
+pub mod error_codes;
 pub mod fetch;
 pub mod header;
 pub mod produce;
