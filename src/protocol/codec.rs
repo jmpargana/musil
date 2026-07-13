@@ -90,11 +90,9 @@ impl RequestDecoder {
             for _ in 0..partition_length {
                 let partition_id = buf.get_u16();
 
-                // FIXME: this is most likely wrong. We need to keep iterating, so position needs to change.
-                // Instead we should use Bytes.
-                // I need to figure out if you pass a reference, if you pass Bytes (because it has a reference)
-                // Or if I return Bytes back to reassign, like a move + move.
-                let record_batch = RecordBatch::decode(&buf, 0);
+                let batch_len = buf.get_u32() as usize;
+                let batch_bytes = buf.split_to(batch_len);
+                let record_batch = RecordBatch::decode(&batch_bytes, 0);
 
                 partitions.push(ProducePartition {
                     index: partition_id,
@@ -116,7 +114,7 @@ impl RequestDecoder {
 
 #[cfg(test)]
 mod tests {
-    use bytes::{BufMut, BytesMut};
+    use bytes::{BufMut, Bytes, BytesMut};
 
     use crate::protocol::{
         body::FrameBody,
@@ -124,79 +122,299 @@ mod tests {
         header::ApiKey,
         produce::{acks::Acks, request::produce_request::ProduceRequest},
     };
+    use crate::storage::record::Record;
+    use crate::storage::record_batch::RecordBatch;
 
     use super::*;
 
-    // TODO: refactor to use encoder, which will be needed before writing to network
-    fn produce_frame_bytes() -> Bytes {
+    // Encode a RecordBatch to the wire format the codec expects:
+    // u32 length prefix + 16-byte header + records payload.
+    fn encode_batch_for_wire(batch: &RecordBatch) -> Vec<u8> {
+        let header = batch.encode_header();
+        let total = header.len() + batch.records.len();
+        let mut out = Vec::new();
+        out.extend_from_slice(&(total as u32).to_be_bytes());
+        out.extend_from_slice(&header);
+        out.extend_from_slice(&batch.records);
+        out
+    }
+
+    fn make_batch(base_offset: u64, records: &[(&[u8], &[u8])]) -> RecordBatch {
+        let mut encoded = Vec::new();
+        for (i, (key, val)) in records.iter().enumerate() {
+            encoded.extend(Record::new(i as u64, key, val).encode());
+        }
+        RecordBatch {
+            base_offset,
+            batch_length: 4 + encoded.len() as u32,
+            records_count: records.len() as u32,
+            records: Bytes::from(encoded),
+        }
+    }
+
+    fn build_frame(
+        correlation_id: u32,
+        client_id: Option<&[u8]>,
+        transactional_id: u64,
+        acks: u32,
+        timeout_ms: u64,
+        topics: &[(&[u8], &[(u16, &[u8])])], // (topic_name, [(partition_id, wire_batch_bytes)])
+    ) -> Bytes {
         let mut buf = BytesMut::new();
 
-        // size
-        buf.put_u32(0); // placeholder
-
-        // header
-        buf.put_u32(0); // api key
+        buf.put_u32(0); // size placeholder
+        buf.put_u32(0); // ApiKey::Produce = 0
         buf.put_u32(0); // version
-        buf.put_u32(42); // correlation id
+        buf.put_u32(correlation_id);
 
-        let client = b"client";
-        buf.put_u16(client.len() as u16);
-        buf.extend_from_slice(client);
+        match client_id {
+            Some(id) => {
+                buf.put_i16(id.len() as i16);
+                buf.extend_from_slice(id);
+            }
+            None => buf.put_i16(-1),
+        }
 
-        // produce body
-        buf.put_u64(123); // transactional id
-        buf.put_u32(1); // acks
-        buf.put_u64(5000); // timeout
+        buf.put_u64(transactional_id);
+        buf.put_u32(acks);
+        buf.put_u64(timeout_ms);
 
-        // topics
-        buf.put_u16(1);
+        buf.put_u16(topics.len() as u16);
+        for (topic_name, partitions) in topics {
+            buf.put_u16(topic_name.len() as u16);
+            buf.extend_from_slice(topic_name);
+            buf.put_u32(partitions.len() as u32);
+            for (partition_id, batch_wire) in *partitions {
+                buf.put_u16(*partition_id);
+                buf.extend_from_slice(batch_wire);
+            }
+        }
 
-        let topic = b"orders";
-        buf.put_u16(topic.len() as u16);
-        buf.extend_from_slice(topic);
-
-        // partitions
-        buf.put_u32(1);
-
-        buf.put_u16(3); // partition id
-
-        let batch = b"hello";
-        buf.put_u32(batch.len() as u32);
-        buf.extend_from_slice(batch);
-
-        // update size
         let size = (buf.len() - 4) as u32;
         buf[..4].copy_from_slice(&size.to_be_bytes());
 
         buf.freeze()
     }
 
-    #[test]
-    fn parses_full_frame() {
-        let bytes = produce_frame_bytes();
-        let mut decoder = RequestDecoder;
-        let frame = decoder.parse(bytes).unwrap();
+    // --- header parsing ---
 
-        assert_eq!(frame.size, 65);
+    #[test]
+    fn parses_header_fields() {
+        let batch = make_batch(0, &[]);
+        let wire = encode_batch_for_wire(&batch);
+        let frame_bytes = build_frame(42, Some(b"client"), 0, 0, 0, &[(b"t", &[(0, &wire)])]);
+
+        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+
         assert_eq!(frame.header.api_key, ApiKey::Produce);
-        assert_eq!(frame.header.api_version, 0);
+        assert_eq!(frame.header.correlation_id, 42);
+        assert_eq!(frame.header.client_id.as_deref(), Some("client"));
+    }
+
+    #[test]
+    fn parses_null_client_id() {
+        let batch = make_batch(0, &[]);
+        let wire = encode_batch_for_wire(&batch);
+        let frame_bytes = build_frame(1, None, 0, 0, 0, &[(b"t", &[(0, &wire)])]);
+
+        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        assert_eq!(frame.header.client_id, None);
+    }
+
+    #[test]
+    fn rejects_invalid_api_key() {
+        let mut buf = BytesMut::new();
+        buf.put_u32(8);
+        buf.put_u32(0xFF); // unknown api key
+        buf.put_u32(0);
+        buf.put_u32(0);
+        buf.put_i16(-1);
+
+        let result = RequestDecoder.parse(buf.freeze());
+        assert!(matches!(result, Err(ParseError::InvalidApiKey)));
+    }
+
+    #[test]
+    fn rejects_invalid_ack_value() {
+        let batch = make_batch(0, &[]);
+        let wire = encode_batch_for_wire(&batch);
+        let frame_bytes = build_frame(1, None, 0, 99, 0, &[(b"t", &[(0, &wire)])]); // acks=99 invalid
+
+        let result = RequestDecoder.parse(frame_bytes);
+        assert!(matches!(result, Err(ParseError::InvalidAck)));
+    }
+
+    // --- produce body parsing ---
+
+    #[test]
+    fn parses_produce_body_fields() {
+        let batch = make_batch(0, &[]);
+        let wire = encode_batch_for_wire(&batch);
+        let frame_bytes = build_frame(1, None, 0xDEAD, 1, 5000, &[(b"orders", &[(3, &wire)])]);
+
+        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        match frame.body {
+            FrameBody::Produce(req) => {
+                assert_eq!(req.transactional_id, 0xDEAD);
+                assert_eq!(req.acks, Acks::Leader);
+                assert_eq!(req.timeout.as_millis(), 5000);
+            }
+            _ => panic!("expected Produce"),
+        }
+    }
+
+    #[test]
+    fn parses_acks_none() {
+        let batch = make_batch(0, &[]);
+        let wire = encode_batch_for_wire(&batch);
+        let frame_bytes = build_frame(1, None, 0, 0, 0, &[(b"t", &[(0, &wire)])]);
+        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        match frame.body {
+            FrameBody::Produce(req) => assert_eq!(req.acks, Acks::None),
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn parses_acks_all() {
+        let batch = make_batch(0, &[]);
+        let wire = encode_batch_for_wire(&batch);
+        let frame_bytes = build_frame(1, None, 0, 2, 0, &[(b"t", &[(0, &wire)])]);
+        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        match frame.body {
+            FrameBody::Produce(req) => assert_eq!(req.acks, Acks::All),
+            _ => panic!(),
+        }
+    }
+
+    // --- topic + partition structure ---
+
+    #[test]
+    fn parses_topic_name_and_partition_index() {
+        let batch = make_batch(0, &[]);
+        let wire = encode_batch_for_wire(&batch);
+        let frame_bytes = build_frame(1, None, 0, 0, 0, &[(b"orders", &[(7, &wire)])]);
+
+        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        match frame.body {
+            FrameBody::Produce(req) => {
+                assert_eq!(req.topics.len(), 1);
+                assert_eq!(req.topics[0].topic, "orders");
+                assert_eq!(req.topics[0].partitions.len(), 1);
+                assert_eq!(req.topics[0].partitions[0].index, 7);
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn parses_multiple_topics() {
+        let batch = make_batch(0, &[]);
+        let wire = encode_batch_for_wire(&batch);
+        let frame_bytes = build_frame(
+            1, None, 0, 0, 0,
+            &[
+                (b"topic-a", &[(0, wire.as_slice())]),
+                (b"topic-b", &[(1, wire.as_slice())]),
+            ],
+        );
+
+        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        match frame.body {
+            FrameBody::Produce(req) => {
+                assert_eq!(req.topics.len(), 2);
+                assert_eq!(req.topics[0].topic, "topic-a");
+                assert_eq!(req.topics[1].topic, "topic-b");
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn parses_multiple_partitions_in_topic() {
+        let batch = make_batch(0, &[]);
+        let wire = encode_batch_for_wire(&batch);
+        let frame_bytes = build_frame(
+            1, None, 0, 0, 0,
+            &[(b"t", &[(0, wire.as_slice()), (1, wire.as_slice())])],
+        );
+
+        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        match frame.body {
+            FrameBody::Produce(req) => {
+                assert_eq!(req.topics[0].partitions.len(), 2);
+                assert_eq!(req.topics[0].partitions[0].index, 0);
+                assert_eq!(req.topics[0].partitions[1].index, 1);
+            }
+            _ => panic!(),
+        }
+    }
+
+    // --- batch content round-trip ---
+
+    #[test]
+    fn batch_fields_survive_codec_roundtrip() {
+        let batch = make_batch(42, &[(b"key", b"val")]);
+        let wire = encode_batch_for_wire(&batch);
+        let frame_bytes = build_frame(1, None, 0, 0, 0, &[(b"t", &[(0, &wire)])]);
+
+        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        match frame.body {
+            FrameBody::Produce(req) => {
+                let decoded = &req.topics[0].partitions[0].records;
+                assert_eq!(decoded.base_offset, 42);
+                assert_eq!(decoded.records_count, 1);
+
+                let (record, _) = Record::decode_raw(&decoded.records).unwrap();
+                assert_eq!(record.key, b"key");
+                assert_eq!(record.value, b"val");
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn batch_with_multiple_records_roundtrip() {
+        let batch = make_batch(0, &[(b"k0", b"v0"), (b"k1", b"v1"), (b"k2", b"v2")]);
+        let wire = encode_batch_for_wire(&batch);
+        let frame_bytes = build_frame(1, None, 0, 0, 0, &[(b"t", &[(0, &wire)])]);
+
+        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        match frame.body {
+            FrameBody::Produce(req) => {
+                let decoded = &req.topics[0].partitions[0].records;
+                assert_eq!(decoded.records_count, 3);
+
+                let expected_keys: &[&[u8]] = &[b"k0", b"k1", b"k2"];
+                let mut pos = 0;
+                for expected_key in expected_keys {
+                    let (r, consumed) = Record::decode_raw(&decoded.records[pos..]).unwrap();
+                    assert_eq!(r.key.as_slice(), *expected_key);
+                    pos += consumed;
+                }
+            }
+            _ => panic!(),
+        }
+    }
+
+    // Regression: parses the full original test fixture
+    #[test]
+    fn parses_full_frame_regression() {
+        let batch = make_batch(0, &[]);
+        let wire = encode_batch_for_wire(&batch);
+        let frame_bytes = build_frame(42, Some(b"client"), 123, 1, 5000, &[(b"orders", &[(3, &wire)])]);
+
+        let frame = RequestDecoder.parse(frame_bytes).unwrap();
         assert_eq!(frame.header.correlation_id, 42);
         assert_eq!(frame.header.client_id.as_deref(), Some("client"));
 
         match frame.body {
-            FrameBody::Produce(ProduceRequest {
-                transactional_id,
-                acks,
-                timeout: _,
-                topics,
-            }) => {
-                assert_eq!(transactional_id, 123);
-                assert_eq!(acks, Acks::Leader);
-                assert_eq!(topics.len(), 1);
-                assert_eq!(topics[0].topic, "orders");
-                assert_eq!(topics[0].partitions.len(), 1);
-                assert_eq!(topics[0].partitions[0].index, 3);
-                // assert_eq!(topics[0].partitions[0].records.as_ref(), b"hello");
+            FrameBody::Produce(req) => {
+                assert_eq!(req.transactional_id, 123);
+                assert_eq!(req.acks, Acks::Leader);
+                assert_eq!(req.topics.len(), 1);
+                assert_eq!(req.topics[0].topic, "orders");
+                assert_eq!(req.topics[0].partitions[0].index, 3);
             }
             _ => panic!("expected produce frame"),
         }
