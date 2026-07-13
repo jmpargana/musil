@@ -350,6 +350,35 @@ mod tests {
         }
     }
 
+    // Two partitions with distinct records — verifies buf cursor advances past first partition's
+    // batch bytes so second partition decodes its own data, not a re-read of the first.
+    #[test]
+    fn multiple_partitions_each_decode_own_records() {
+        let b0 = make_batch(0, &[(b"key-p0", b"val-p0")]);
+        let b1 = make_batch(0, &[(b"key-p1", b"val-p1")]);
+        let wire0 = encode_batch_for_wire(&b0);
+        let wire1 = encode_batch_for_wire(&b1);
+        let frame_bytes = build_frame(
+            1, None, 0, 0, 0,
+            &[(b"t", &[(0, wire0.as_slice()), (1, wire1.as_slice())])],
+        );
+
+        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        match frame.body {
+            FrameBody::Produce(req) => {
+                let parts = &req.topics[0].partitions;
+                assert_eq!(parts.len(), 2);
+
+                let (r0, _) = Record::decode_raw(&parts[0].records.records).unwrap();
+                assert_eq!(r0.key, b"key-p0", "partition 0 decoded wrong record");
+
+                let (r1, _) = Record::decode_raw(&parts[1].records.records).unwrap();
+                assert_eq!(r1.key, b"key-p1", "partition 1 decoded wrong record — buf cursor not advanced");
+            }
+            _ => panic!(),
+        }
+    }
+
     // --- batch content round-trip ---
 
     #[test]
