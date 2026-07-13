@@ -1,8 +1,12 @@
 use std::{cmp::max, sync::Arc};
 
 use crate::{
-    protocol::fetch::{
-        request::fetch_partition::FetchPartition, response::partition_response::PartitionResponse,
+    protocol::{
+        error_codes::ErrorCode,
+        fetch::{
+            request::fetch_partition::FetchPartition,
+            response::partition_response::PartitionResponse,
+        },
     },
     replica::ReplicaMetadata,
     segment::metadata::{RecordLocation, SegmentView},
@@ -41,7 +45,7 @@ impl PartitionState {
 
         PartitionResponse {
             partition_index,
-            error_code: 0, // TODO: refer to error code
+            error_code: ErrorCode::None,
             high_watermark: self.high_watermark,
             log_start_offset: self.log_end_offset,
             records,
