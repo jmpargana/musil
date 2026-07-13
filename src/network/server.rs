@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use bytes::BytesMut;
 use tokio::net::TcpListener;
 
 use crate::{broker::Broker, network::connection::Connection};
@@ -16,6 +17,7 @@ impl SocketServer {
             let conn = Connection {
                 stream,
                 broker: self.broker.clone(),
+                read_buf: BytesMut::new(),
             };
             tokio::spawn(async move {
                 conn.handle().await;

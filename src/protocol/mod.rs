@@ -141,9 +141,10 @@ impl Frame {
         buf.freeze()
     }
 
-    pub fn decode(buf: Bytes) -> Result<Self, ParseError> {
+    pub fn decode(buf: &Bytes, size: u32) -> Result<Self, ParseError> {
         let mut decoder = RequestDecoder;
-        decoder.parse(buf)
+        let mut buf = buf.clone();
+        decoder.parse(&mut buf, size)
     }
 }
 
@@ -222,7 +223,9 @@ mod tests {
 
     fn roundtrip(frame: Frame) -> Frame {
         let encoded = frame.encode();
-        Frame::decode(encoded).unwrap()
+        let size = u32::from_be_bytes(encoded[0..4].try_into().unwrap());
+        let body = encoded.slice(4..);
+        Frame::decode(&body, size).unwrap()
     }
 
     // --- header roundtrips ---

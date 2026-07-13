@@ -32,9 +32,8 @@ pub enum ParseError {
 }
 
 impl RequestDecoder {
-    pub fn parse(&mut self, mut buf: Bytes) -> Result<Frame, ParseError> {
-        let size = buf.get_u32();
-
+    // `size`` is now decoded in the handler, so a frame can be allocated with the correct size.
+    pub fn parse(&mut self, buf: &mut Bytes, size: u32) -> Result<Frame, ParseError> {
         let api_key = buf.get_u32();
         let api_version = buf.get_u32();
         let correlation_id = buf.get_u32();
@@ -60,7 +59,6 @@ impl RequestDecoder {
 
         // TODO: depending on message type we need to read different values from body
         let body: FrameBody = match api_key {
-            // FIXME: before doing this I need to copy more bytes on demand to keep reading
             ApiKey::Produce => self.parse_produce(buf)?,
             ApiKey::Fetch => self.parse_fetch(buf)?,
             ApiKey::Metadata => self.parse_metadata(buf)?,
@@ -69,7 +67,7 @@ impl RequestDecoder {
         Ok(Frame { size, header, body })
     }
 
-    fn parse_produce(&self, mut buf: Bytes) -> Result<FrameBody, ParseError> {
+    fn parse_produce(&self, buf: &mut Bytes) -> Result<FrameBody, ParseError> {
         let transactional_id = buf.get_u64();
         let acks = buf
             .get_u32()
@@ -114,7 +112,7 @@ impl RequestDecoder {
         }))
     }
 
-    fn parse_fetch(&self, mut buf: Bytes) -> Result<FrameBody, ParseError> {
+    fn parse_fetch(&self, buf: &mut Bytes) -> Result<FrameBody, ParseError> {
         let replica_id = buf.get_i32();
         let max_bytes = buf.get_u32();
         let topics_len = buf.get_u32();
@@ -151,7 +149,7 @@ impl RequestDecoder {
         }))
     }
 
-    fn parse_metadata(&self, mut buf: Bytes) -> Result<FrameBody, ParseError> {
+    fn parse_metadata(&self, buf: &mut Bytes) -> Result<FrameBody, ParseError> {
         let topic_len = buf.get_u32();
 
         let mut topics = Vec::new();
@@ -182,6 +180,13 @@ mod tests {
     use crate::storage::record_batch::RecordBatch;
 
     use super::*;
+
+    // Parse a full wire frame (4-byte size prefix + body) the same way connection.rs does.
+    fn parse_full_frame(frame_bytes: Bytes) -> Result<Frame, ParseError> {
+        let size = u32::from_be_bytes(frame_bytes[0..4].try_into().unwrap());
+        let mut body = frame_bytes.slice(4..);
+        RequestDecoder.parse(&mut body, size)
+    }
 
     // Encode a RecordBatch to the wire format the codec expects:
     // u32 length prefix + 16-byte header + records payload.
@@ -260,7 +265,7 @@ mod tests {
         let wire = encode_batch_for_wire(&batch);
         let frame_bytes = build_frame(42, Some(b"client"), 0, 0, 0, &[(b"t", &[(0, &wire)])]);
 
-        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        let frame = parse_full_frame(frame_bytes).unwrap();
 
         assert_eq!(frame.header.api_key, ApiKey::Produce);
         assert_eq!(frame.header.correlation_id, 42);
@@ -273,7 +278,7 @@ mod tests {
         let wire = encode_batch_for_wire(&batch);
         let frame_bytes = build_frame(1, None, 0, 0, 0, &[(b"t", &[(0, &wire)])]);
 
-        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        let frame = parse_full_frame(frame_bytes).unwrap();
         assert_eq!(frame.header.client_id, None);
     }
 
@@ -286,7 +291,7 @@ mod tests {
         buf.put_u32(0);
         buf.put_i16(-1);
 
-        let result = RequestDecoder.parse(buf.freeze());
+        let result = parse_full_frame(buf.freeze());
         assert!(matches!(result, Err(ParseError::InvalidApiKey)));
     }
 
@@ -296,7 +301,7 @@ mod tests {
         let wire = encode_batch_for_wire(&batch);
         let frame_bytes = build_frame(1, None, 0, 99, 0, &[(b"t", &[(0, &wire)])]); // acks=99 invalid
 
-        let result = RequestDecoder.parse(frame_bytes);
+        let result = parse_full_frame(frame_bytes);
         assert!(matches!(result, Err(ParseError::InvalidAck)));
     }
 
@@ -308,7 +313,7 @@ mod tests {
         let wire = encode_batch_for_wire(&batch);
         let frame_bytes = build_frame(1, None, 0xDEAD, 1, 5000, &[(b"orders", &[(3, &wire)])]);
 
-        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        let frame = parse_full_frame(frame_bytes).unwrap();
         match frame.body {
             FrameBody::Produce(req) => {
                 assert_eq!(req.transactional_id, 0xDEAD);
@@ -324,7 +329,7 @@ mod tests {
         let batch = make_batch(0, &[]);
         let wire = encode_batch_for_wire(&batch);
         let frame_bytes = build_frame(1, None, 0, 0, 0, &[(b"t", &[(0, &wire)])]);
-        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        let frame = parse_full_frame(frame_bytes).unwrap();
         match frame.body {
             FrameBody::Produce(req) => assert_eq!(req.acks, Acks::None),
             _ => panic!(),
@@ -336,7 +341,7 @@ mod tests {
         let batch = make_batch(0, &[]);
         let wire = encode_batch_for_wire(&batch);
         let frame_bytes = build_frame(1, None, 0, 2, 0, &[(b"t", &[(0, &wire)])]);
-        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        let frame = parse_full_frame(frame_bytes).unwrap();
         match frame.body {
             FrameBody::Produce(req) => assert_eq!(req.acks, Acks::All),
             _ => panic!(),
@@ -351,7 +356,7 @@ mod tests {
         let wire = encode_batch_for_wire(&batch);
         let frame_bytes = build_frame(1, None, 0, 0, 0, &[(b"orders", &[(7, &wire)])]);
 
-        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        let frame = parse_full_frame(frame_bytes).unwrap();
         match frame.body {
             FrameBody::Produce(req) => {
                 assert_eq!(req.topics.len(), 1);
@@ -379,7 +384,7 @@ mod tests {
             ],
         );
 
-        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        let frame = parse_full_frame(frame_bytes).unwrap();
         match frame.body {
             FrameBody::Produce(req) => {
                 assert_eq!(req.topics.len(), 2);
@@ -403,7 +408,7 @@ mod tests {
             &[(b"t", &[(0, wire.as_slice()), (1, wire.as_slice())])],
         );
 
-        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        let frame = parse_full_frame(frame_bytes).unwrap();
         match frame.body {
             FrameBody::Produce(req) => {
                 assert_eq!(req.topics[0].partitions.len(), 2);
@@ -431,7 +436,7 @@ mod tests {
             &[(b"t", &[(0, wire0.as_slice()), (1, wire1.as_slice())])],
         );
 
-        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        let frame = parse_full_frame(frame_bytes).unwrap();
         match frame.body {
             FrameBody::Produce(req) => {
                 let parts = &req.topics[0].partitions;
@@ -458,7 +463,7 @@ mod tests {
         let wire = encode_batch_for_wire(&batch);
         let frame_bytes = build_frame(1, None, 0, 0, 0, &[(b"t", &[(0, &wire)])]);
 
-        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        let frame = parse_full_frame(frame_bytes).unwrap();
         match frame.body {
             FrameBody::Produce(req) => {
                 let decoded = &req.topics[0].partitions[0].records;
@@ -479,7 +484,7 @@ mod tests {
         let wire = encode_batch_for_wire(&batch);
         let frame_bytes = build_frame(1, None, 0, 0, 0, &[(b"t", &[(0, &wire)])]);
 
-        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        let frame = parse_full_frame(frame_bytes).unwrap();
         match frame.body {
             FrameBody::Produce(req) => {
                 let decoded = &req.topics[0].partitions[0].records;
@@ -555,7 +560,7 @@ mod tests {
     #[test]
     fn parses_fetch_header_and_fields() {
         let bytes = build_fetch_frame(77, -1, 65536, &[(b"events", &[(2, 100, 4096)])]);
-        let frame = RequestDecoder.parse(bytes).unwrap();
+        let frame = parse_full_frame(bytes).unwrap();
 
         assert_eq!(frame.header.correlation_id, 77);
         assert_eq!(frame.header.api_key, ApiKey::Fetch);
@@ -584,7 +589,7 @@ mod tests {
                 (b"topic-b", &[(0, 5, 256)]),
             ],
         );
-        let frame = RequestDecoder.parse(bytes).unwrap();
+        let frame = parse_full_frame(bytes).unwrap();
         match frame.body {
             FrameBody::Fetch(req) => {
                 assert_eq!(req.topics.len(), 2);
@@ -602,7 +607,7 @@ mod tests {
     #[test]
     fn parses_metadata_topics() {
         let bytes = build_metadata_frame(&[b"orders", b"events"], false);
-        let frame = RequestDecoder.parse(bytes).unwrap();
+        let frame = parse_full_frame(bytes).unwrap();
         assert_eq!(frame.header.api_key, ApiKey::Metadata);
         match frame.body {
             FrameBody::Metadata(req) => {
@@ -616,7 +621,7 @@ mod tests {
     #[test]
     fn parses_metadata_allow_auto_creation() {
         let bytes = build_metadata_frame(&[], true);
-        let frame = RequestDecoder.parse(bytes).unwrap();
+        let frame = parse_full_frame(bytes).unwrap();
         match frame.body {
             FrameBody::Metadata(req) => {
                 assert!(req.allow_auto_topic_creation);
@@ -640,7 +645,7 @@ mod tests {
             &[(b"orders", &[(3, &wire)])],
         );
 
-        let frame = RequestDecoder.parse(frame_bytes).unwrap();
+        let frame = parse_full_frame(frame_bytes).unwrap();
         assert_eq!(frame.header.correlation_id, 42);
         assert_eq!(frame.header.client_id.as_deref(), Some("client"));
 

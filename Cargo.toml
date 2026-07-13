@@ -14,6 +14,7 @@ derive_builder = "0.20.2"
 memmap = "0.7.0"
 serde = "1.0.228"
 tokio = { version = "1.52.3", features = ["full"] }
+tracing = "0.1.44"
 
 [dev-dependencies]
 tempdir = "0.3.7"
