@@ -90,7 +90,8 @@ impl LogSegment {
         self.log_file.write_all(&batch.records)?;
 
         // check if there's a new index
-        self.bytes_since_last_index += batch.batch_length as usize; // FIXME: does it include baseOffset and batchLength 32 + 64?
+        // 8 (base_offset) + 4 (batch_length) + batch_length bytes are written
+        self.bytes_since_last_index += 12 + batch.batch_length as usize;
 
         if self.bytes_since_last_index >= self.index_threshold_bytes {
             let pos = self.index_write_pos;
@@ -103,7 +104,7 @@ impl LogSegment {
             self.bytes_since_last_index = 0;
         }
 
-        self.size += batch.batch_length as usize;
+        self.size += 12 + batch.batch_length as usize;
         Ok(())
     }
 
@@ -116,103 +117,189 @@ impl LogSegment {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs::File, io::Read};
+    use bytes::Bytes;
 
     use crate::segment::config::SegmentConfigBuilder;
-    use crate::storage::record::Record;
+    use crate::storage::record_batch::RecordBatch;
 
     use super::*;
 
-    #[test]
-    fn creates_correct_file_0() {
-        let dir = tempdir::TempDir::new("./random").unwrap();
-
+    fn make_seg(dir: &tempdir::TempDir, base_offset: u64, segment_bytes: usize) -> LogSegment {
         let cfg = SegmentConfigBuilder::default()
             .base_dir(dir.path().to_str().unwrap().to_string())
-            .base_offset(0)
+            .base_offset(base_offset)
+            .segment_bytes(segment_bytes)
             .build()
             .unwrap();
+        LogSegment::new(cfg).unwrap()
+    }
 
-        let _ = LogSegment::new(cfg).unwrap();
-
-        let mut files = dir.path().read_dir().unwrap();
-        assert!(files.any(|f| f.unwrap().file_name() == "00000000000000000000.log"));
-        assert!(files.any(|f| f.unwrap().file_name() == "00000000000000000000.index"));
+    fn make_batch(base_offset: u64, records_count: u32, payload: &[u8]) -> RecordBatch {
+        RecordBatch {
+            base_offset,
+            batch_length: 4 + payload.len() as u32,
+            records_count,
+            records: Bytes::copy_from_slice(payload),
+        }
     }
 
     #[test]
-    fn creates_correct_file_offset() {
-        let dir = tempdir::TempDir::new("./random").unwrap();
-        let cfg = SegmentConfigBuilder::default()
-            .base_dir(dir.path().to_str().unwrap().to_string())
-            .base_offset(1230)
-            .build()
-            .unwrap();
-        let _ = LogSegment::new(cfg).unwrap();
+    fn creates_log_and_index_at_offset_zero() {
+        let dir = tempdir::TempDir::new("seg-test").unwrap();
+        make_seg(&dir, 0, 1 << 20);
 
-        let mut files = dir.path().read_dir().unwrap();
-        assert!(files.any(|f| f.unwrap().file_name() == "00000000000000001230.log"));
-        assert!(files.any(|f| f.unwrap().file_name() == "00000000000000001230.index"));
+        let names: Vec<_> = dir
+            .path()
+            .read_dir()
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert!(names.contains(&"00000000000000000000.log".to_string()));
+        assert!(names.contains(&"00000000000000000000.index".to_string()));
     }
 
     #[test]
-    fn appends_size_to_empty_log_file() {
-        let dir = tempdir::TempDir::new("./random").unwrap();
-        let cfg = SegmentConfigBuilder::default()
-            .base_dir(dir.path().to_str().unwrap().to_string())
-            .base_offset(0)
-            .build()
-            .unwrap();
+    fn creates_log_and_index_at_nonzero_offset() {
+        let dir = tempdir::TempDir::new("seg-test").unwrap();
+        make_seg(&dir, 1230, 1 << 20);
 
-        let mut seg = LogSegment::new(cfg).unwrap();
+        let names: Vec<_> = dir
+            .path()
+            .read_dir()
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert!(names.contains(&"00000000000000001230.log".to_string()));
+        assert!(names.contains(&"00000000000000001230.index".to_string()));
+    }
 
-        // let mut record = Record::new(b"hello", b"world");
-        // record.add_offset(1);
-        // #[allow(deprecated)]
-        // let appended_size = seg.append(record).unwrap();
+    #[test]
+    fn size_matches_bytes_written_to_log_file() {
+        let dir = tempdir::TempDir::new("seg-test").unwrap();
+        let mut seg = make_seg(&dir, 0, 1 << 20);
 
-        let mut read_dir = dir.path().read_dir().unwrap();
-        let log_file = read_dir
-            .find(|f| {
-                *f.as_ref().unwrap().file_name().into_string().unwrap()
-                    == "00000000000000000000.log".to_string()
+        let batch = make_batch(0, 1, b"hello");
+        seg.append_batch(&batch).unwrap();
+
+        let log_path = dir
+            .path()
+            .read_dir()
+            .unwrap()
+            .find(|e| {
+                e.as_ref()
+                    .unwrap()
+                    .file_name()
+                    .into_string()
+                    .unwrap()
+                    .ends_with(".log")
             })
             .unwrap()
-            .unwrap();
-        // assert_eq!(log_file.metadata().unwrap().len() as usize, appended_size);
+            .unwrap()
+            .path();
+
+        let file_len = std::fs::metadata(&log_path).unwrap().len() as usize;
+        assert_eq!(
+            seg.size, file_len,
+            "size ({}) must equal actual file length ({})",
+            seg.size, file_len
+        );
+        // Explicit check: 12 + batch_length = 12 + 4 + 5 = 21
+        assert_eq!(seg.size, 12 + batch.batch_length as usize);
     }
 
     #[test]
-    fn appends_creates_index_file_at_start() {
-        let dir = tempdir::TempDir::new("./random").unwrap();
+    fn size_accumulates_across_multiple_batches() {
+        let dir = tempdir::TempDir::new("seg-test").unwrap();
+        let mut seg = make_seg(&dir, 0, 1 << 20);
+
+        let b1 = make_batch(0, 1, b"aaa");
+        let b2 = make_batch(1, 1, b"bbbbbb");
+        seg.append_batch(&b1).unwrap();
+        seg.append_batch(&b2).unwrap();
+
+        let expected = (12 + b1.batch_length as usize) + (12 + b2.batch_length as usize);
+        assert_eq!(seg.size, expected);
+    }
+
+    #[test]
+    fn index_entry_written_on_first_append() {
+        let dir = tempdir::TempDir::new("seg-test").unwrap();
+        let mut seg = make_seg(&dir, 0, 1 << 20);
+
+        let batch = make_batch(0, 1, b"data");
+        seg.append_batch(&batch).unwrap();
+
+        assert_eq!(
+            seg.index_count, 1,
+            "first append must produce one index entry"
+        );
+    }
+
+    #[test]
+    fn index_entry_records_correct_offset_and_position() {
+        let dir = tempdir::TempDir::new("seg-test").unwrap();
+        let mut seg = make_seg(&dir, 42, 1 << 20);
+
+        let batch = make_batch(42, 1, b"payload");
+        seg.append_batch(&batch).unwrap();
+
+        let offset = u64::from_le_bytes(seg.index_file[0..8].try_into().unwrap());
+        let pos = u64::from_le_bytes(seg.index_file[8..16].try_into().unwrap());
+
+        assert_eq!(offset, 42);
+        assert_eq!(pos, 0, "first batch written at file position 0");
+    }
+
+    #[test]
+    fn second_index_entry_at_correct_file_position() {
+        let dir = tempdir::TempDir::new("seg-test").unwrap();
         let cfg = SegmentConfigBuilder::default()
             .base_dir(dir.path().to_str().unwrap().to_string())
             .base_offset(0)
+            .segment_bytes(1 << 20)
+            .index_interval_bytes(1)
             .build()
             .unwrap();
-
         let mut seg = LogSegment::new(cfg).unwrap();
 
-        // let mut record = Record::new(b"hello", b"world");
-        // record.add_offset(1);
-        // #[allow(deprecated)]
-        // let _ = seg.append(record).unwrap();
-        // drop(seg);
+        let b1 = make_batch(0, 1, b"first");
+        let b2 = make_batch(1, 1, b"second");
+        seg.append_batch(&b1).unwrap();
+        seg.append_batch(&b2).unwrap();
 
-        // let mut read_dir = dir.path().read_dir().unwrap();
-        // let index_file = read_dir
-        //     .find(|f| {
-        //         *f.as_ref().unwrap().file_name().into_string().unwrap()
-        //             == "00000000000000000000.index".to_string()
-        //     })
-        //     .unwrap()
-        //     .unwrap();
+        assert_eq!(seg.index_count, 2);
 
-        // let mut index_file = File::open(index_file.path()).unwrap();
-        // let mut u64_buf = [0u8; 8];
-        // index_file.read_exact(&mut u64_buf).unwrap();
-        // assert_eq!(u64::from_le_bytes(u64_buf), 1);
-        // index_file.read_exact(&mut u64_buf).unwrap();
-        // assert_eq!(u64::from_le_bytes(u64_buf), 0);
+        let pos = u64::from_le_bytes(seg.index_file[24..32].try_into().unwrap());
+        let expected_pos = (12 + b1.batch_length) as u64;
+        assert_eq!(pos, expected_pos);
+    }
+
+    #[test]
+    fn publish_reflects_current_size_and_index_count() {
+        let dir = tempdir::TempDir::new("seg-test").unwrap();
+        let mut seg = make_seg(&dir, 0, 1 << 20);
+
+        let batch = make_batch(0, 2, b"xy");
+        seg.append_batch(&batch).unwrap();
+        let view = seg.publish();
+
+        assert_eq!(view.size, seg.size);
+        assert_eq!(view.index_count, seg.index_count);
+    }
+
+    #[test]
+    fn publish_twice_returns_updated_view() {
+        let dir = tempdir::TempDir::new("seg-test").unwrap();
+        let mut seg = make_seg(&dir, 0, 1 << 20);
+
+        let b1 = make_batch(0, 1, b"a");
+        seg.append_batch(&b1).unwrap();
+        let v1 = seg.publish();
+
+        let b2 = make_batch(1, 1, b"bb");
+        seg.append_batch(&b2).unwrap();
+        let v2 = seg.publish();
+
+        assert!(v2.size > v1.size);
     }
 }
