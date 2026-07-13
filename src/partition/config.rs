@@ -2,7 +2,7 @@ use derive_builder::Builder;
 
 use crate::replica::ReplicaMetadata;
 
-#[derive(Builder)]
+#[derive(Builder, Clone)]
 pub struct PartitionConfig {
     #[builder(default = 1<<20)]
     pub segment_bytes: usize,

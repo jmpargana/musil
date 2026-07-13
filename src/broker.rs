@@ -1,28 +1,34 @@
 use std::{collections::HashMap, io, sync::Arc, time::Instant};
 
+use derive_builder::Builder;
+
 use crate::{
-    partition::handle::PartitionHandle,
+    partition::{config::PartitionConfig, handle::PartitionHandle},
     protocol::{
         Frame,
         body::FrameBody::{self},
         error_codes::ErrorCode,
-        fetch::{
-            response::{
-                fetch_response::FetchResponse,
-                partition_response::PartitionResponse,
-                topic_response::TopicResponse,
-            },
+        fetch::response::{
+            fetch_response::FetchResponse, partition_response::PartitionResponse,
+            topic_response::TopicResponse,
         },
-        produce::{
-            response::{
-                partition_response::ProducePartitionResponse,
-                produce_response::ProduceResponse,
-                topic_response::ProduceTopicResponse,
-            },
+        produce::response::{
+            partition_response::ProducePartitionResponse, produce_response::ProduceResponse,
+            topic_response::ProduceTopicResponse,
         },
     },
     topic::TopicPartition,
 };
+
+#[derive(Builder, Clone)]
+pub struct BrokerConfig {
+    pub topics: Vec<TopicConfig>,
+}
+
+#[derive(Builder, Clone)]
+pub struct TopicConfig {
+    pub partitions: Vec<PartitionConfig>,
+}
 
 pub struct Broker {
     // TODO: needs to be behind Arc in case topics and partitions are dynamic, otherwise broker restart is needed
@@ -51,7 +57,10 @@ impl Broker {
         match &req.body {
             FrameBody::Fetch(_) => self.handle_fetch(req).await,
             FrameBody::Produce(_) => self.handle_produce(req).await,
-            _ => Err(io::Error::new(io::ErrorKind::InvalidInput, "unsupported frame type")),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "unsupported frame type",
+            )),
         }
     }
 
@@ -68,10 +77,9 @@ impl Broker {
             for p in t.partitions {
                 let part_res = match self.partition(&t.topic, p.partition as u16) {
                     Some(partition) => partition.fetch(p, body.replica_id).await,
-                    None => PartitionResponse::error(
-                        p.partition,
-                        ErrorCode::UnknownTopicOrPartition,
-                    ),
+                    None => {
+                        PartitionResponse::error(p.partition, ErrorCode::UnknownTopicOrPartition)
+                    }
                 };
                 part_responses.push(part_res);
             }
@@ -141,6 +149,7 @@ mod tests {
 
     use crate::partition::config::PartitionConfigBuilder;
     use crate::partition::handle::PartitionHandle;
+    use crate::protocol::Frame;
     use crate::protocol::body::FrameBody;
     use crate::protocol::error_codes::ErrorCode;
     use crate::protocol::fetch::request::fetch_partition::FetchPartition;
@@ -155,11 +164,14 @@ mod tests {
     use crate::storage::record::Record;
     use crate::storage::record_batch::RecordBatch;
     use crate::topic::TopicPartition;
-    use crate::protocol::Frame;
 
     use super::Broker;
 
-    fn make_partition(dir: &tempdir::TempDir, topic: &str, partition_id: u16) -> std::sync::Arc<PartitionHandle> {
+    fn make_partition(
+        dir: &tempdir::TempDir,
+        topic: &str,
+        partition_id: u16,
+    ) -> std::sync::Arc<PartitionHandle> {
         let cfg = PartitionConfigBuilder::default()
             .base_dir(dir.path().to_str().unwrap().to_string())
             .topic_id(topic.to_string())
@@ -176,7 +188,10 @@ mod tests {
         for (topic, ids) in topics {
             for &id in *ids {
                 partitions.insert(
-                    TopicPartition { topic_id: topic.to_string(), partition_id: id },
+                    TopicPartition {
+                        topic_id: topic.to_string(),
+                        partition_id: id,
+                    },
                     make_partition(dir, topic, id),
                 );
             }
@@ -214,7 +229,10 @@ mod tests {
                 timeout: std::time::Duration::ZERO,
                 topics: vec![ProduceTopic {
                     topic: topic.to_string(),
-                    partitions: vec![ProducePartition { index: partition_id, records: batch }],
+                    partitions: vec![ProducePartition {
+                        index: partition_id,
+                        records: batch,
+                    }],
                 }],
             }),
         }
@@ -232,9 +250,8 @@ mod tests {
                     partitions: vec![FetchPartition {
                         partition: partition_id as u32,
                         fetch_offset: offset,
-                        log_start_offset: None,
                         partition_max_bytes: 1 << 20,
-                        high_watermark: None,
+                        high_watermark: 0,
                     }],
                 }],
             }),
@@ -338,7 +355,10 @@ mod tests {
         let dir = tempdir::TempDir::new("broker-test").unwrap();
         let broker = make_broker(&dir, &[("orders", &[0])]);
 
-        broker.handle(produce_frame("orders", 0, record_batch(0, b"key", b"val"))).await.unwrap();
+        broker
+            .handle(produce_frame("orders", 0, record_batch(0, b"key", b"val")))
+            .await
+            .unwrap();
 
         let resp = broker.handle(fetch_frame("orders", 0, 0)).await.unwrap();
         match resp.body {
@@ -408,8 +428,14 @@ mod tests {
                 topics: vec![ProduceTopic {
                     topic: "orders".to_string(),
                     partitions: vec![
-                        ProducePartition { index: 0, records: record_batch(0, b"k0", b"v0") },
-                        ProducePartition { index: 1, records: record_batch(0, b"k1", b"v1") },
+                        ProducePartition {
+                            index: 0,
+                            records: record_batch(0, b"k0", b"v0"),
+                        },
+                        ProducePartition {
+                            index: 1,
+                            records: record_batch(0, b"k1", b"v1"),
+                        },
                     ],
                 }],
             }),

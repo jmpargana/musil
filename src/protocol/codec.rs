@@ -5,7 +5,11 @@ use bytes::{Buf, Bytes};
 use crate::{
     protocol::{
         Frame,
+        fetch::request::{
+            fetch_partition::FetchPartition, fetch_request::FetchRequest, fetch_topic::FetchTopic,
+        },
         header::{ApiKey, RequestHeader},
+        metadata::MetadataRequest,
         produce::request::{
             produce_partition::ProducePartition, produce_request::ProduceRequest,
             produce_topic::ProduceTopic,
@@ -58,9 +62,8 @@ impl RequestDecoder {
         let body: FrameBody = match api_key {
             // FIXME: before doing this I need to copy more bytes on demand to keep reading
             ApiKey::Produce => self.parse_produce(buf)?,
-            ApiKey::Fetch => {
-                todo!()
-            }
+            ApiKey::Fetch => self.parse_fetch(buf)?,
+            ApiKey::Metadata => self.parse_metadata(buf)?,
         };
 
         Ok(Frame { size, header, body })
@@ -110,6 +113,62 @@ impl RequestDecoder {
             topics,
         }))
     }
+
+    fn parse_fetch(&self, mut buf: Bytes) -> Result<FrameBody, ParseError> {
+        let replica_id = buf.get_i32();
+        let max_bytes = buf.get_u32();
+        let topics_len = buf.get_u32();
+
+        let mut topics = Vec::new();
+        for _ in 0..topics_len {
+            let topic_name_len = buf.get_u16();
+            let topic = buf.split_to(topic_name_len as usize);
+            let topic = String::from_utf8_lossy(&topic).to_string();
+            let partitions_len = buf.get_u32();
+
+            let mut partitions = Vec::new();
+
+            for _ in 0..partitions_len {
+                let partition = buf.get_u32();
+                let fetch_offset = buf.get_u64();
+                let partition_max_bytes = buf.get_u32();
+                let high_watermark = buf.get_u64();
+
+                partitions.push(FetchPartition {
+                    partition,
+                    fetch_offset,
+                    partition_max_bytes,
+                    high_watermark,
+                })
+            }
+
+            topics.push(FetchTopic { topic, partitions });
+        }
+        Ok(FrameBody::Fetch(FetchRequest {
+            replica_id,
+            max_bytes,
+            topics,
+        }))
+    }
+
+    fn parse_metadata(&self, mut buf: Bytes) -> Result<FrameBody, ParseError> {
+        let topic_len = buf.get_u32();
+
+        let mut topics = Vec::new();
+        for _ in 0..topic_len {
+            let topic_name_len = buf.get_i16();
+            let topic = buf.split_to(topic_name_len as usize);
+            let topic = String::from_utf8_lossy(&topic);
+            topics.push(topic.to_string());
+        }
+
+        let allow_auto_topic_creation = if buf.get_u8() == 0 { false } else { true };
+
+        Ok(FrameBody::Metadata(MetadataRequest {
+            allow_auto_topic_creation,
+            topics,
+        }))
+    }
 }
 
 #[cfg(test)]
@@ -117,10 +176,7 @@ mod tests {
     use bytes::{BufMut, Bytes, BytesMut};
 
     use crate::protocol::{
-        body::FrameBody,
-        codec::RequestDecoder,
-        header::ApiKey,
-        produce::acks::Acks,
+        body::FrameBody, codec::RequestDecoder, header::ApiKey, produce::acks::Acks,
     };
     use crate::storage::record::Record;
     use crate::storage::record_batch::RecordBatch;
@@ -312,7 +368,11 @@ mod tests {
         let batch = make_batch(0, &[]);
         let wire = encode_batch_for_wire(&batch);
         let frame_bytes = build_frame(
-            1, None, 0, 0, 0,
+            1,
+            None,
+            0,
+            0,
+            0,
             &[
                 (b"topic-a", &[(0, wire.as_slice())]),
                 (b"topic-b", &[(1, wire.as_slice())]),
@@ -335,7 +395,11 @@ mod tests {
         let batch = make_batch(0, &[]);
         let wire = encode_batch_for_wire(&batch);
         let frame_bytes = build_frame(
-            1, None, 0, 0, 0,
+            1,
+            None,
+            0,
+            0,
+            0,
             &[(b"t", &[(0, wire.as_slice()), (1, wire.as_slice())])],
         );
 
@@ -359,7 +423,11 @@ mod tests {
         let wire0 = encode_batch_for_wire(&b0);
         let wire1 = encode_batch_for_wire(&b1);
         let frame_bytes = build_frame(
-            1, None, 0, 0, 0,
+            1,
+            None,
+            0,
+            0,
+            0,
             &[(b"t", &[(0, wire0.as_slice()), (1, wire1.as_slice())])],
         );
 
@@ -373,7 +441,10 @@ mod tests {
                 assert_eq!(r0.key, b"key-p0", "partition 0 decoded wrong record");
 
                 let (r1, _) = Record::decode_raw(&parts[1].records.records).unwrap();
-                assert_eq!(r1.key, b"key-p1", "partition 1 decoded wrong record — buf cursor not advanced");
+                assert_eq!(
+                    r1.key, b"key-p1",
+                    "partition 1 decoded wrong record — buf cursor not advanced"
+                );
             }
             _ => panic!(),
         }
@@ -426,12 +497,148 @@ mod tests {
         }
     }
 
+    fn build_fetch_frame(
+        correlation_id: u32,
+        replica_id: i32,
+        max_bytes: u32,
+        topics: &[(&[u8], &[(u32, u64, u32)])], // (name, [(partition, fetch_offset, max_bytes)])
+    ) -> Bytes {
+        let mut buf = BytesMut::new();
+        buf.put_u32(0); // size placeholder
+        buf.put_u32(1); // ApiKey::Fetch = 1
+        buf.put_u32(0); // version
+        buf.put_u32(correlation_id);
+        buf.put_i16(-1); // no client_id
+
+        buf.put_i32(replica_id);
+        buf.put_u32(max_bytes);
+        buf.put_u32(topics.len() as u32);
+        for (name, partitions) in topics {
+            buf.put_u16(name.len() as u16);
+            buf.extend_from_slice(name);
+            buf.put_u32(partitions.len() as u32);
+            for (partition, fetch_offset, part_max_bytes) in *partitions {
+                buf.put_u32(*partition);
+                buf.put_u64(*fetch_offset);
+                buf.put_u32(*part_max_bytes);
+                buf.put_u64(0); // high_watermark
+            }
+        }
+
+        let size = (buf.len() - 4) as u32;
+        buf[..4].copy_from_slice(&size.to_be_bytes());
+        buf.freeze()
+    }
+
+    fn build_metadata_frame(topics: &[&[u8]], allow_auto: bool) -> Bytes {
+        let mut buf = BytesMut::new();
+        buf.put_u32(0); // size placeholder
+        buf.put_u32(3); // ApiKey::Metadata = 3
+        buf.put_u32(0); // version
+        buf.put_u32(1); // correlation_id
+        buf.put_i16(-1); // no client_id
+
+        buf.put_u32(topics.len() as u32);
+        for name in topics {
+            buf.put_i16(name.len() as i16);
+            buf.extend_from_slice(name);
+        }
+        buf.put_u8(allow_auto as u8);
+
+        let size = (buf.len() - 4) as u32;
+        buf[..4].copy_from_slice(&size.to_be_bytes());
+        buf.freeze()
+    }
+
+    // --- fetch parsing ---
+
+    #[test]
+    fn parses_fetch_header_and_fields() {
+        let bytes = build_fetch_frame(77, -1, 65536, &[(b"events", &[(2, 100, 4096)])]);
+        let frame = RequestDecoder.parse(bytes).unwrap();
+
+        assert_eq!(frame.header.correlation_id, 77);
+        assert_eq!(frame.header.api_key, ApiKey::Fetch);
+        match frame.body {
+            FrameBody::Fetch(req) => {
+                assert_eq!(req.replica_id, -1);
+                assert_eq!(req.max_bytes, 65536);
+                assert_eq!(req.topics.len(), 1);
+                assert_eq!(req.topics[0].topic, "events");
+                assert_eq!(req.topics[0].partitions[0].partition, 2);
+                assert_eq!(req.topics[0].partitions[0].fetch_offset, 100);
+                assert_eq!(req.topics[0].partitions[0].partition_max_bytes, 4096);
+            }
+            _ => panic!("expected Fetch"),
+        }
+    }
+
+    #[test]
+    fn parses_fetch_multiple_topics_and_partitions() {
+        let bytes = build_fetch_frame(
+            1,
+            0,
+            1024,
+            &[
+                (b"topic-a", &[(0, 0, 512), (1, 10, 512)]),
+                (b"topic-b", &[(0, 5, 256)]),
+            ],
+        );
+        let frame = RequestDecoder.parse(bytes).unwrap();
+        match frame.body {
+            FrameBody::Fetch(req) => {
+                assert_eq!(req.topics.len(), 2);
+                assert_eq!(req.topics[0].topic, "topic-a");
+                assert_eq!(req.topics[0].partitions.len(), 2);
+                assert_eq!(req.topics[0].partitions[1].fetch_offset, 10);
+                assert_eq!(req.topics[1].topic, "topic-b");
+            }
+            _ => panic!(),
+        }
+    }
+
+    // --- metadata parsing ---
+
+    #[test]
+    fn parses_metadata_topics() {
+        let bytes = build_metadata_frame(&[b"orders", b"events"], false);
+        let frame = RequestDecoder.parse(bytes).unwrap();
+        assert_eq!(frame.header.api_key, ApiKey::Metadata);
+        match frame.body {
+            FrameBody::Metadata(req) => {
+                assert_eq!(req.topics, vec!["orders", "events"]);
+                assert!(!req.allow_auto_topic_creation);
+            }
+            _ => panic!("expected Metadata"),
+        }
+    }
+
+    #[test]
+    fn parses_metadata_allow_auto_creation() {
+        let bytes = build_metadata_frame(&[], true);
+        let frame = RequestDecoder.parse(bytes).unwrap();
+        match frame.body {
+            FrameBody::Metadata(req) => {
+                assert!(req.allow_auto_topic_creation);
+                assert!(req.topics.is_empty());
+            }
+            _ => panic!(),
+        }
+    }
+
     // Regression: parses the full original test fixture
     #[test]
     fn parses_full_frame_regression() {
         let batch = make_batch(0, &[]);
         let wire = encode_batch_for_wire(&batch);
-        let frame_bytes = build_frame(42, Some(b"client"), 123, 1, 5000, &[(b"orders", &[(3, &wire)])]);
+        let frame_bytes = build_frame(
+            42,
+            Some(b"client"),
+            123,
+            1,
+            5000,
+            &[(b"orders", &[(3, &wire)])],
+        );
 
         let frame = RequestDecoder.parse(frame_bytes).unwrap();
         assert_eq!(frame.header.correlation_id, 42);

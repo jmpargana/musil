@@ -25,10 +25,8 @@ impl RequestHeader {
 pub enum ApiKey {
     Produce,
     Fetch,
-    // other values:
-    // - Metadata
-    // - ApiVersions
-    // - SaslAuthenticate
+    Metadata,
+    // etc. add up to 40 (CreatePartitions)
 }
 
 #[derive(Debug)]
@@ -41,6 +39,7 @@ impl TryFrom<u32> for ApiKey {
         match value {
             0 => Ok(ApiKey::Produce),
             1 => Ok(ApiKey::Fetch),
+            3 => Ok(ApiKey::Metadata),
             _ => Err(InvalidEnumValue(value)),
         }
     }
@@ -51,6 +50,7 @@ impl From<ApiKey> for u32 {
         match value {
             ApiKey::Produce => 0,
             ApiKey::Fetch => 1,
+            ApiKey::Metadata => 3,
         }
     }
 }

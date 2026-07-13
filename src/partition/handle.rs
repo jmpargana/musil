@@ -137,9 +137,8 @@ mod tests {
         FetchPartition {
             partition: 0,
             fetch_offset: offset,
-            log_start_offset: None,
             partition_max_bytes: max_bytes,
-            high_watermark: None,
+            high_watermark: 0,
         }
     }
 
