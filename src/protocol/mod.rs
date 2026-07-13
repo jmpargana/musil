@@ -57,7 +57,7 @@ impl Frame {
                 }
             }
             FrameBody::FetchResponse(_) => todo!(),
-            FrameBody::ProduceResponse => todo!(),
+            FrameBody::ProduceResponse(_) => todo!(),
             FrameBody::Fetch(_) => todo!(),
         }
 

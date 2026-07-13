@@ -4,12 +4,15 @@ use crate::{
     partition::handle::PartitionHandle,
     protocol::{
         Frame,
-        body::FrameBody,
+        body::FrameBody::{self},
         fetch::{
             request::fetch_request::FetchRequest,
             response::{fetch_response::FetchResponse, topic_response::TopicResponse},
         },
-        produce::request::produce_request::ProduceRequest,
+        produce::{
+            request::produce_request::ProduceRequest,
+            response::{produce_response::ProduceResponse, topic_response::ProduceTopicResponse},
+        },
     },
     topic::TopicPartition,
 };
@@ -21,7 +24,7 @@ pub struct Broker {
 
 impl Broker {
     pub fn new() -> Self {
-        // take config
+        todo!()
     }
 
     pub fn update(&mut self) {}
@@ -37,20 +40,23 @@ impl Broker {
 
     pub async fn handle(&self, req: Frame) -> io::Result<Frame> {
         match &req.body {
-            FrameBody::Fetch(body) => self.handle_fetch(&req, body).await,
-            FrameBody::Produce(body) => self.handle_produce(body).await,
+            FrameBody::Fetch(_) => self.handle_fetch(req).await,
+            FrameBody::Produce(_) => self.handle_produce(req).await,
             _ => panic!("unsupported"),
         }
     }
 
     // TODO: refactor shared flow into single method
-    async fn handle_fetch(&self, req: &Frame, body: &FetchRequest) -> io::Result<Frame> {
+    async fn handle_fetch(&self, req: Frame) -> io::Result<Frame> {
+        let FrameBody::Fetch(body) = req.body else {
+            unreachable!()
+        };
         let now = Instant::now();
         let mut topic_responses = Vec::new();
 
-        for t in &body.topics {
+        for t in body.topics {
             let mut part_responses = Vec::new();
-            for p in &t.partitions {
+            for p in t.partitions {
                 let partition = self.partition(&t.topic, p.partition as u16)?;
                 let part_res = partition.fetch(p, body.replica_id).await;
                 part_responses.push(part_res);
@@ -75,21 +81,34 @@ impl Broker {
         Ok(Frame { size, header, body })
     }
 
-    async fn handle_produce(&self, body: &ProduceRequest) -> io::Result<Frame> {
+    async fn handle_produce(&self, req: Frame) -> io::Result<Frame> {
+        let FrameBody::Produce(body) = req.body else {
+            unreachable!()
+        };
         let now = Instant::now();
         let mut topic_responses = Vec::new();
 
-        for t in &body.topics {
+        for t in body.topics {
             let mut part_responses = Vec::new();
-            for p in &t.partitions {
+            for p in t.partitions {
                 let partition = self.partition(&t.topic, p.index as u16)?;
                 let part_res = partition.append(p.records, body.acks).await;
                 part_responses.push(part_res);
             }
-            topic_responses.push(part_responses);
+            topic_responses.push(ProduceTopicResponse {
+                topic: t.topic,
+                partition_responses: part_responses,
+            });
         }
 
-        // build response here
+        let header = req.header.clone();
+        let produce_response = ProduceResponse {
+            throttle_time_ms: now.elapsed().as_millis() as u32,
+            responses: topic_responses,
+        };
+        let size = produce_response.get_size() + header.get_size();
+
+        let body = FrameBody::ProduceResponse(produce_response);
 
         Ok(Frame { size, header, body })
     }

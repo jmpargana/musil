@@ -1,11 +1,14 @@
 use std::collections::VecDeque;
 use std::io;
+use std::path::Path;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
+use derive_builder::Builder;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::partition::command::PartitionCommand;
+use crate::partition::config::PartitionConfig;
 use crate::partition::state::PartitionState;
 use crate::protocol::produce::acks::Acks;
 use crate::protocol::produce::response::partition_response::ProducePartitionResponse;
@@ -37,19 +40,47 @@ pub struct PartitionActor {
     acks_pending_replication: VecDeque<PendingResponse>,
 }
 
+#[derive(Builder)]
+pub struct PartitionActorConfig {
+    pub base_dir: String,
+    pub segment_bytes: usize,
+    pub broker_id: u16,
+    pub partition_id: u16,
+}
+
+impl From<PartitionConfig> for PartitionActorConfig {
+    fn from(cfg: PartitionConfig) -> Self {
+        let base_path = Path::new(&cfg.base_dir);
+        let topic_partition_name = format!("{}-{}", cfg.topic_id, cfg.partition_id);
+        let base_dir = base_path
+            .join(topic_partition_name)
+            .as_path()
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        PartitionActorConfigBuilder::default()
+            .broker_id(cfg.broker_id)
+            .partition_id(cfg.partition_id)
+            .segment_bytes(cfg.segment_bytes)
+            .base_dir(base_dir)
+            .build()
+            .unwrap()
+    }
+}
+
 impl PartitionActor {
     pub fn new(
         rx: mpsc::Receiver<PartitionCommand>,
-        base_dir: String,
-        segment_bytes: usize,
         snapshot: Arc<ArcSwap<PartitionState>>,
+        config: PartitionActorConfig,
     ) -> io::Result<Self> {
-        let cloned = base_dir.clone();
+        let cloned = config.base_dir.clone();
 
         let cfg = SegmentConfigBuilder::default()
             .base_dir(cloned.clone())
             .base_offset(0)
-            .segment_bytes(segment_bytes)
+            .segment_bytes(config.segment_bytes)
             .build()
             .unwrap();
 
@@ -64,11 +95,13 @@ impl PartitionActor {
 
         Ok(Self {
             rx,
-            base_dir,
             active,
-            segment_bytes,
             snapshot,
             acks_pending_replication: VecDeque::new(), // TODO: add capacity based on replica size
+            base_dir: config.base_dir,
+            broker_id: config.broker_id,
+            partition_id: config.partition_id,
+            segment_bytes: config.segment_bytes,
         })
     }
 
@@ -76,7 +109,7 @@ impl PartitionActor {
         while let Some(c) = self.rx.recv().await {
             match c {
                 PartitionCommand::Append {
-                    ref mut record,
+                    mut record,
                     acks,
                     done,
                 } => {
@@ -103,8 +136,8 @@ impl PartitionActor {
                             .unwrap();
                     }
 
-                    self.active.append_batch(record);
                     record.update_base_offset(leo);
+                    self.active.append_batch(&record).unwrap();
 
                     leo += record.records_count as u64;
 

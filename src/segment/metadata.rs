@@ -44,7 +44,7 @@ impl SegmentView {
     // Even if copying the byte array to a `bytes::Bytes`, copying data to user-space is unnecessary.
     // Instead I should just pass FD pointers around so `connection` calls `sendfile`.
     // This behavior is equivalent to kafka's `transferTo` function call.
-    pub fn fetch(&self, req: &FetchPartition) -> Vec<RecordBatch> {
+    pub fn fetch(&self, req: FetchPartition) -> Vec<RecordBatch> {
         let Some(idx) = self.find_physical_position(req.fetch_offset) else {
             return vec![];
         };
@@ -60,9 +60,7 @@ impl SegmentView {
             pos: 0,
         };
         let starting_pos = record_iter
-            .find_map(|(pos, record)| {
-                (record.offset_delta.unwrap() == req.fetch_offset).then_some(pos)
-            })
+            .find_map(|(pos, record)| (record.offset_delta == req.fetch_offset).then_some(pos))
             .unwrap();
 
         let actual_batch_length = batch.batch_length - starting_pos as u32;
