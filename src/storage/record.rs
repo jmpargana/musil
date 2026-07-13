@@ -68,24 +68,24 @@ impl Record {
     fn write_to<W: Write>(&self, writer: &mut W) -> io::Result<usize> {
         let mut size: usize = 0;
 
-        let temp = &self.offset_delta.to_be_bytes(); // must be Some by now
-        writer.write_all(temp);
+        let temp = &self.offset_delta.to_be_bytes();
+        writer.write_all(temp)?;
         size += temp.len();
 
         let temp = &self.timestamp.to_be_bytes();
-        writer.write_all(temp);
+        writer.write_all(temp)?;
         size += temp.len();
 
         let temp = &(self.key.len() as u32).to_be_bytes();
-        writer.write_all(temp);
+        writer.write_all(temp)?;
         size += temp.len();
-        writer.write_all(&self.key);
+        writer.write_all(&self.key)?;
         size += self.key.len();
 
         let temp = &(self.value.len() as u32).to_be_bytes();
-        writer.write_all(temp);
+        writer.write_all(temp)?;
         size += temp.len();
-        writer.write_all(&self.value);
+        writer.write_all(&self.value)?;
         size += self.value.len();
 
         Ok(size)

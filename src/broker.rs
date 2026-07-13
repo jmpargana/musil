@@ -7,7 +7,6 @@ use crate::{
         body::FrameBody::{self},
         error_codes::ErrorCode,
         fetch::{
-            request::fetch_request::FetchRequest,
             response::{
                 fetch_response::FetchResponse,
                 partition_response::PartitionResponse,
@@ -15,7 +14,6 @@ use crate::{
             },
         },
         produce::{
-            request::produce_request::ProduceRequest,
             response::{
                 partition_response::ProducePartitionResponse,
                 produce_response::ProduceResponse,
@@ -153,7 +151,6 @@ mod tests {
     use crate::protocol::produce::request::produce_partition::ProducePartition;
     use crate::protocol::produce::request::produce_request::ProduceRequest;
     use crate::protocol::produce::request::produce_topic::ProduceTopic;
-    use std::sync::Arc;
     use crate::protocol::produce::response::produce_response::ProduceResponse;
     use crate::storage::record::Record;
     use crate::storage::record_batch::RecordBatch;

@@ -8,9 +8,8 @@ use std::{
 use memmap::MmapOptions;
 
 use crate::{
-    protocol::fetch::request::fetch_partition::FetchPartition,
     segment::{config::SegmentConfig, metadata::SegmentView},
-    storage::{record::Record, record_batch::RecordBatch},
+    storage::record_batch::RecordBatch,
 };
 
 const INDEX_ENTRY_SIZE: usize = 16; // (u64 offset + u64 position)

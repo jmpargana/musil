@@ -315,7 +315,7 @@ mod tests {
     #[tokio::test]
     async fn acks_none_responds_immediately() {
         let dir = make_dir();
-        let (tx, state, handle) = spawn_actor(&dir, vec![], 1 << 20);
+        let (tx, _state, handle) = spawn_actor(&dir, vec![], 1 << 20);
 
         let batch = make_batch(0, 1, b"x");
         let resp = append(&tx, batch, Acks::None).await;
@@ -330,7 +330,7 @@ mod tests {
     #[tokio::test]
     async fn acks_leader_responds_with_correct_base_offset() {
         let dir = make_dir();
-        let (tx, state, handle) = spawn_actor(&dir, vec![], 1 << 20);
+        let (tx, _state, handle) = spawn_actor(&dir, vec![], 1 << 20);
 
         let r1 = append(&tx, make_batch(0, 2, b"ab"), Acks::Leader).await;
         assert_eq!(r1.base_offset, 0);
@@ -369,7 +369,7 @@ mod tests {
         let (tx, state, handle) = spawn_actor(&dir, vec![replica], 1 << 20);
 
         let batch = make_batch(0, 1, b"z");
-        let (done_tx, done_rx) = oneshot::channel();
+        let (done_tx, _done_rx) = oneshot::channel();
         tx.send(PartitionCommand::Append {
             record: batch,
             acks: Acks::All,
@@ -404,7 +404,7 @@ mod tests {
     async fn acks_all_flushes_in_fifo_order() {
         let dir = make_dir();
         let replica = ReplicaMetadata::empty("broker-2".to_string(), 99);
-        let (tx, state, handle) = spawn_actor(&dir, vec![replica], 1 << 20);
+        let (tx, _state, handle) = spawn_actor(&dir, vec![replica], 1 << 20);
 
         let (tx1, rx1) = oneshot::channel();
         let (tx2, rx2) = oneshot::channel();

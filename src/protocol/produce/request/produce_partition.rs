@@ -1,5 +1,3 @@
-use bytes::Bytes;
-
 use crate::storage::record_batch::RecordBatch;
 
 // OR: batch: Bytes which already is a reference to the underlying bytes

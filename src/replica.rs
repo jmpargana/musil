@@ -8,8 +8,8 @@ pub struct ReplicaMetadata {
     pub log_end_offset: u64,
 
     // both can be refactored to single ReplicaStatus
-    is_in_sync: bool,
-    last_heartbeat: Instant,
+    _is_in_sync: bool,
+    _last_heartbeat: Instant,
     // TODO: channel to upload
 }
 
@@ -19,9 +19,8 @@ impl ReplicaMetadata {
             broker_id,
             replica_id,
             log_end_offset: 0,
-            // starts off working
-            is_in_sync: true,
-            last_heartbeat: Instant::now(),
+            _is_in_sync: true,
+            _last_heartbeat: Instant::now(),
         }
     }
 }

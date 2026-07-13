@@ -120,7 +120,7 @@ mod tests {
         body::FrameBody,
         codec::RequestDecoder,
         header::ApiKey,
-        produce::{acks::Acks, request::produce_request::ProduceRequest},
+        produce::acks::Acks,
     };
     use crate::storage::record::Record;
     use crate::storage::record_batch::RecordBatch;

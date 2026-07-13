@@ -26,8 +26,6 @@ use crate::{
     storage::record_batch::RecordBatch,
 };
 
-use std::path::Path;
-
 pub struct PartitionHandle {
     id: u32,
     tx: mpsc::Sender<PartitionCommand>,

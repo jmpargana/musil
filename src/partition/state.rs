@@ -9,7 +9,7 @@ use crate::{
         },
     },
     replica::ReplicaMetadata,
-    segment::metadata::{RecordLocation, SegmentView},
+    segment::metadata::SegmentView,
 };
 
 #[derive(Clone)]

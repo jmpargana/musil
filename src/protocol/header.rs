@@ -1,7 +1,5 @@
 use derive_builder::Builder;
 
-const HEADER_SIZE: usize = 16; // 4xu32
-
 // TODO: do I need Request or Response?
 #[derive(Builder, Clone)]
 pub struct RequestHeader {

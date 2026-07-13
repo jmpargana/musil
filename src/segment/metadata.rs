@@ -214,8 +214,6 @@ impl<'a> Iterator for RecordIter<'a> {
 mod tests {
     use super::*;
     use bytes::Bytes;
-    use std::sync::Arc;
-
     use crate::segment::config::SegmentConfigBuilder;
     use crate::segment::log_segment::LogSegment;
     use crate::storage::record::Record;
@@ -268,7 +266,7 @@ mod tests {
         encoded.extend(r1.encode());
         encoded.extend(r2.encode());
 
-        let mut iter = RecordIter {
+        let iter = RecordIter {
             bytes: &encoded,
             pos: 0,
         };
@@ -288,7 +286,7 @@ mod tests {
         let mut encoded = r0.encode();
         encoded.extend(r1.encode());
 
-        let mut iter = RecordIter {
+        let iter = RecordIter {
             bytes: &encoded,
             pos: 0,
         };
