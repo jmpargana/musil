@@ -52,6 +52,7 @@ impl Record {
         pos += 4;
 
         let value = buf[pos..pos + value_size].to_vec();
+        pos += value_size;
 
         Ok((
             Record {
