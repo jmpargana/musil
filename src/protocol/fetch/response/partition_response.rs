@@ -12,6 +12,16 @@ pub struct PartitionResponse {
 }
 
 impl PartitionResponse {
+    pub fn error(partition_index: u32, error_code: ErrorCode) -> Self {
+        Self {
+            partition_index,
+            error_code,
+            high_watermark: 0,
+            log_start_offset: 0,
+            records: vec![],
+        }
+    }
+
     pub fn get_size(&self) -> u32 {
         // each field plus records
         4 + 2 + 8 + 8 + self.records.iter().map(|b| b.get_size()).sum::<u32>()

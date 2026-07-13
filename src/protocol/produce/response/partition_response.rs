@@ -35,6 +35,18 @@ impl ProducePartitionResponse {
         }
     }
 
+    pub fn error(index: u32, error_code: ErrorCode) -> Self {
+        Self {
+            index,
+            error_code,
+            base_offset: 0,
+            log_append_time_ms: 0,
+            log_start_offset: 0,
+            error_message: "".to_string(),
+            current_leader: None,
+        }
+    }
+
     // TODO: maybe option should have an additional byte or 2 to represent (tag0).
     pub(crate) fn get_size(&self) -> u32 {
         let current_leader_size = if let Some(_) = &self.current_leader {
