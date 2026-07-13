@@ -101,53 +101,139 @@ impl PartitionHandle {
 
 #[cfg(test)]
 mod tests {
+    use bytes::Bytes;
+
     use crate::partition::config::PartitionConfigBuilder;
+    use crate::protocol::fetch::request::fetch_partition::FetchPartition;
     use crate::storage::record::Record;
+    use crate::storage::record_batch::RecordBatch;
 
     use super::*;
 
-    #[tokio::test]
-    async fn write_reads() {
-        let dir = tempdir::TempDir::new("./")
-            .unwrap()
-            .path()
-            .to_str()
-            .unwrap()
-            .to_string();
-        let cfg = PartitionConfigBuilder::default().build().unwrap();
-        // let handle = PartitionHandle::spawn("test".to_string(), 0, dir, cfg);
-        // let record = Record::new(b"hello", b"world");
-
-        // let offset = handle.find_pos(1);
-        // assert!(offset.is_none());
-
-        // // handle.append(record).await;
-
-        // let offset = handle.find_pos(1);
-        // assert!(offset.is_some());
-    }
-
-    #[tokio::test]
-    async fn giant_record_creates_new_segment() {
-        let dir = tempdir::TempDir::new("./")
-            .unwrap()
-            .path()
-            .to_str()
-            .unwrap()
-            .to_string();
+    fn make_handle(dir: &tempdir::TempDir, segment_bytes: usize) -> Arc<PartitionHandle> {
         let cfg = PartitionConfigBuilder::default()
-            .segment_bytes(3)
+            .base_dir(dir.path().to_str().unwrap().to_string())
+            .topic_id("test-topic".to_string())
+            .partition_id(0)
+            .broker_id(1)
+            .segment_bytes(segment_bytes)
             .build()
             .unwrap();
-        // let handle = PartitionHandle::spawn("test".to_string(), 0, dir, cfg);
-        // let record = Record::new(b"hello", b"world");
+        PartitionHandle::spawn(0, cfg)
+    }
 
-        // let offset = handle.find_pos(1);
-        // assert!(offset.is_none());
+    fn record_batch(base_offset: u64, records: &[(&[u8], &[u8])]) -> RecordBatch {
+        let mut encoded = Vec::new();
+        for (i, (key, val)) in records.iter().enumerate() {
+            encoded.extend(Record::new(i as u64, key, val).encode());
+        }
+        RecordBatch {
+            base_offset,
+            batch_length: 4 + encoded.len() as u32,
+            records_count: records.len() as u32,
+            records: Bytes::from(encoded),
+        }
+    }
 
-        // handle.append(record).await;
+    fn fetch_req(offset: u64, max_bytes: u32) -> FetchPartition {
+        FetchPartition {
+            partition: 0,
+            fetch_offset: offset,
+            log_start_offset: None,
+            partition_max_bytes: max_bytes,
+            high_watermark: None,
+        }
+    }
 
-        // let state = handle.state.load_full();
-        // assert_eq!(state.segments.len(), 2);
+    // E2E: append one batch, fetch it back, verify records survive round-trip.
+    #[tokio::test]
+    async fn append_then_fetch_returns_written_records() {
+        let dir = tempdir::TempDir::new("handle-e2e").unwrap();
+        let handle = make_handle(&dir, 1 << 20);
+
+        let batch = record_batch(0, &[(b"key1", b"value1"), (b"key2", b"value2")]);
+        let append_resp = handle.append(batch, Acks::Leader).await;
+
+        assert_eq!(append_resp.base_offset, 0);
+        assert_eq!(append_resp.index, 0);
+
+        // Wait for state to reflect the append
+        let state = handle.state.load_full();
+        assert_eq!(state.log_end_offset, 2);
+        assert_eq!(state.high_watermark, 2);
+
+        let fetch_resp = handle.fetch(fetch_req(0, 1 << 20), -1).await;
+
+        assert!(!fetch_resp.records.is_empty(), "fetch must return at least one batch");
+        let total_records: u32 = fetch_resp.records.iter().map(|b| b.records_count).sum();
+        assert_eq!(total_records, 2, "fetched record count must match appended");
+
+        // Decode and verify record content
+        let fetched_batch = &fetch_resp.records[0];
+        let (r0, consumed) = Record::decode_raw(&fetched_batch.records).unwrap();
+        assert_eq!(r0.key, b"key1");
+        assert_eq!(r0.value, b"value1");
+
+        let (r1, _) = Record::decode_raw(&fetched_batch.records[consumed..]).unwrap();
+        assert_eq!(r1.key, b"key2");
+        assert_eq!(r1.value, b"value2");
+
+        handle.shutdown().await;
+    }
+
+    // E2E: multiple appends, fetch from non-zero offset.
+    #[tokio::test]
+    async fn append_multiple_batches_fetch_from_second() {
+        let dir = tempdir::TempDir::new("handle-e2e").unwrap();
+        let handle = make_handle(&dir, 1 << 20);
+
+        let b0 = record_batch(0, &[(b"a", b"1")]);
+        let b1 = record_batch(1, &[(b"b", b"2")]);
+        handle.append(b0, Acks::Leader).await;
+        handle.append(b1, Acks::Leader).await;
+
+        let state = handle.state.load_full();
+        assert_eq!(state.log_end_offset, 2);
+
+        let fetch_resp = handle.fetch(fetch_req(1, 1 << 20), -1).await;
+        assert!(!fetch_resp.records.is_empty());
+
+        // The first returned batch must contain offset 1
+        let first = &fetch_resp.records[0];
+        let (r, _) = Record::decode_raw(&first.records).unwrap();
+        assert_eq!(r.key, b"b");
+        assert_eq!(r.value, b"2");
+
+        handle.shutdown().await;
+    }
+
+    // E2E: segment rotation — large appends force a new segment, both segments fetchable.
+    #[tokio::test]
+    async fn segment_rotation_both_segments_fetchable() {
+        let dir = tempdir::TempDir::new("handle-e2e").unwrap();
+        // tiny segment_bytes forces rotation after first batch
+        let handle = make_handle(&dir, 1);
+
+        let b0 = record_batch(0, &[(b"k0", b"v0")]);
+        let b1 = record_batch(1, &[(b"k1", b"v1")]);
+        handle.append(b0, Acks::Leader).await;
+        handle.append(b1, Acks::Leader).await;
+
+        let state = handle.state.load_full();
+        assert!(state.segments.len() >= 2, "rotation must have occurred");
+
+        // First segment
+        let r0 = handle.fetch(fetch_req(0, 1 << 20), -1).await;
+        assert!(!r0.records.is_empty());
+        let (rec, _) = Record::decode_raw(&r0.records[0].records).unwrap();
+        assert_eq!(rec.key, b"k0");
+
+        // Second segment
+        let r1 = handle.fetch(fetch_req(1, 1 << 20), -1).await;
+        assert!(!r1.records.is_empty());
+        let (rec, _) = Record::decode_raw(&r1.records[0].records).unwrap();
+        assert_eq!(rec.key, b"k1");
+
+        handle.shutdown().await;
     }
 }
