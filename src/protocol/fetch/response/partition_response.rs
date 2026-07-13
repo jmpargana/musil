@@ -1,10 +1,10 @@
+use crate::protocol::error_codes::ErrorCode;
 use crate::storage::record_batch::RecordBatch;
 
 // TODO: include transactional fields.
 pub struct PartitionResponse {
     pub partition_index: u32,
-    // TODO: introduce error enum with conversion
-    pub error_code: u16,
+    pub error_code: ErrorCode,
     pub high_watermark: u64,
     pub log_start_offset: u64,
     pub records: Vec<RecordBatch>,

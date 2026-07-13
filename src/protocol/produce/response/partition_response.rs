@@ -1,3 +1,5 @@
+use crate::protocol::error_codes::ErrorCode;
+
 #[derive(Debug, Clone)]
 pub struct CurrentLeader {
     pub leader_id: i32,
@@ -7,7 +9,7 @@ pub struct CurrentLeader {
 #[derive(Debug, Clone)]
 pub struct ProducePartitionResponse {
     pub index: u32, // partition id
-    pub error_code: u16,
+    pub error_code: ErrorCode,
     pub base_offset: u64, // where log was appended
     pub log_append_time_ms: u64,
     pub log_start_offset: u64, // used to read or recover old offsets
@@ -21,7 +23,7 @@ impl ProducePartitionResponse {
         // TODO: fill missing fields
         Self {
             index,
-            error_code: 0,
+            error_code: ErrorCode::None,
             base_offset,
             log_append_time_ms: 0,
             log_start_offset: 0,
