@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io, sync::Arc, time::Instant};
+use std::{collections::HashMap, io, ops::Deref, sync::Arc, time::Instant};
 
 use derive_builder::Builder;
 
@@ -12,6 +12,7 @@ use crate::{
             fetch_response::FetchResponse, partition_response::PartitionResponse,
             topic_response::TopicResponse,
         },
+        metadata::{BrokerMetadata, MetadataResponse, PartitionMetadata, TopicMetadata},
         produce::response::{
             partition_response::ProducePartitionResponse, produce_response::ProduceResponse,
             topic_response::ProduceTopicResponse,
@@ -22,7 +23,20 @@ use crate::{
 
 #[derive(Builder, Clone)]
 pub struct BrokerConfig {
+    pub node_id: i32,
+    pub host: String,
+    pub port: i32,
     pub topics: Vec<TopicConfig>,
+}
+
+impl Into<BrokerMetadata> for &BrokerConfig {
+    fn into(self) -> BrokerMetadata {
+        BrokerMetadata {
+            node_id: self.node_id,
+            host: self.host.to_string(),
+            port: self.port,
+        }
+    }
 }
 
 #[derive(Builder, Clone)]
@@ -33,6 +47,8 @@ pub struct TopicConfig {
 pub struct Broker {
     // TODO: needs to be behind Arc in case topics and partitions are dynamic, otherwise broker restart is needed
     partitions: HashMap<TopicPartition, Arc<PartitionHandle>>,
+    config: BrokerConfig,
+    brokers: Vec<BrokerConfig>,
 }
 
 impl Broker {
@@ -41,7 +57,16 @@ impl Broker {
     }
 
     pub fn with_partitions(partitions: HashMap<TopicPartition, Arc<PartitionHandle>>) -> Self {
-        Self { partitions }
+        Self {
+            partitions,
+            brokers: vec![],
+            config: BrokerConfig {
+                node_id: 0,
+                host: "localhost".to_string(),
+                port: 9092,
+                topics: vec![],
+            },
+        }
     }
 
     pub fn update(&mut self) {}
@@ -57,6 +82,7 @@ impl Broker {
         match &req.body {
             FrameBody::Fetch(_) => self.handle_fetch(req).await,
             FrameBody::Produce(_) => self.handle_produce(req).await,
+            FrameBody::Metadata(_) => self.handle_metadata(req).await,
             _ => Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "unsupported frame type",
@@ -138,6 +164,71 @@ impl Broker {
         let body = FrameBody::ProduceResponse(produce_response);
 
         Ok(Frame { size, header, body })
+    }
+
+    async fn handle_metadata(&self, req: Frame) -> io::Result<Frame> {
+        let FrameBody::Metadata(body) = req.body else {
+            unreachable!()
+        };
+        let now = Instant::now();
+
+        let mut topics: HashMap<&String, Vec<PartitionMetadata>> = HashMap::new();
+
+        // I can simply ignore all topics, instead just load whatever is available.
+        for (topic_partition, handle) in &self.partitions {
+            let state = handle.state.load_full();
+
+            let mut isr = 0;
+            let mut offline = 0;
+
+            state.replicas.iter().for_each(|replica| {
+                if replica.is_in_sync {
+                    isr += 1;
+                } else {
+                    offline += 1;
+                }
+            });
+
+            let pm = PartitionMetadata {
+                error_code: ErrorCode::None,
+                partition_index: topic_partition.partition_id as i32,
+                leader_id: 0, // FIXME: hardcoding for now
+                replica_nodes: state.replicas.len() as u32,
+                isr_nodes: isr,
+                offline_replicas: offline,
+            };
+
+            topics
+                .entry(&topic_partition.topic_id)
+                .or_default()
+                .push(pm);
+        }
+
+        let topics = topics
+            .into_iter()
+            .map(|(k, v)| TopicMetadata {
+                partitions: v,
+                error_code: ErrorCode::None,
+                name: k.to_string(),
+            })
+            .collect();
+
+        let res = MetadataResponse {
+            throttle_time_ms: now.elapsed().as_millis() as u32,
+            brokers: self.brokers.iter().map(|b| b.into()).collect(),
+            controller_id: 0,
+            topics,
+            error_code: ErrorCode::None,
+        };
+
+        let header = req.header.clone();
+        let size = header.get_size() + res.get_size();
+
+        Ok(Frame {
+            size,
+            header,
+            body: FrameBody::MetadataResponse(res),
+        })
     }
 }
 

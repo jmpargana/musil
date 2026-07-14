@@ -133,6 +133,33 @@ impl Frame {
                 }
                 buf.put_u8(req.allow_auto_topic_creation as u8);
             }
+            FrameBody::MetadataResponse(res) => {
+                buf.put_u32(res.throttle_time_ms);
+                buf.put_u32(res.brokers.len() as u32);
+                for b in &res.brokers {
+                    buf.put_i32(b.node_id);
+                    buf.put_u16(b.host.len() as u16);
+                    buf.put_slice(&b.host.as_bytes());
+                    buf.put_i32(b.port);
+                }
+                buf.put_i32(res.controller_id);
+                buf.put_u32(res.topics.len() as u32);
+                for t in &res.topics {
+                    buf.put_i16(i16::from(t.error_code));
+                    buf.put_u16(t.name.len() as u16);
+                    buf.put_slice(t.name.as_bytes());
+                    buf.put_u32(t.partitions.len() as u32);
+                    for p in &t.partitions {
+                        buf.put_i16(i16::from(p.error_code));
+                        buf.put_i32(p.partition_index);
+                        buf.put_i32(p.leader_id);
+                        buf.put_u32(p.replica_nodes);
+                        buf.put_u32(p.isr_nodes);
+                        buf.put_u32(p.offline_replicas);
+                    }
+                }
+                buf.put_i16(i16::from(res.error_code));
+            }
         }
 
         let size = (buf.len() - 4) as u32;

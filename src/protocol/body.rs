@@ -1,6 +1,6 @@
 use crate::protocol::{
     fetch::{request::fetch_request::FetchRequest, response::fetch_response::FetchResponse},
-    metadata::MetadataRequest,
+    metadata::{MetadataRequest, MetadataResponse},
     produce::{
         request::produce_request::ProduceRequest, response::produce_response::ProduceResponse,
     },
@@ -12,4 +12,5 @@ pub enum FrameBody {
     Fetch(FetchRequest),
     FetchResponse(FetchResponse),
     Metadata(MetadataRequest),
+    MetadataResponse(MetadataResponse),
 }
