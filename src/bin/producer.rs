@@ -1,4 +1,4 @@
-use std::{hash::Hash, net::IpAddr, time::Duration};
+use std::time::Duration;
 
 use bytes::BytesMut;
 use clap::Parser;
@@ -7,7 +7,7 @@ use rafka::{
     protocol::{
         Frame,
         body::FrameBody,
-        header::{ApiKey, RequestHeader},
+        header::ApiKey,
         metadata::MetadataRequest,
         produce::{
             acks::Acks,
@@ -21,10 +21,9 @@ use rafka::{
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpSocket, TcpStream},
+    net::TcpStream,
 };
 
-use rand::RngExt;
 
 #[derive(Parser, Debug)]
 #[command(version)]

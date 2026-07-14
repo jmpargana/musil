@@ -3,7 +3,10 @@ use std::{collections::HashMap, io, sync::Arc, time::Instant};
 use derive_builder::Builder;
 
 use crate::{
-    partition::{config::PartitionConfig, handle::PartitionHandle},
+    partition::{
+        config::{PartitionConfig, PartitionConfigBuilder},
+        handle::PartitionHandle,
+    },
     protocol::{
         Frame,
         body::FrameBody::{self},
@@ -52,8 +55,46 @@ pub struct Broker {
 }
 
 impl Broker {
+    // TODO: this is all hardcoded for now. Config will need to be generated from metadata log instead.
+    // That'll be only possible once we have the quorum controller vs normal broker.
     pub fn new() -> Self {
-        todo!()
+        Self {
+            partitions: HashMap::from([(
+                TopicPartition {
+                    topic_id: "test".to_string(),
+                    partition_id: 0,
+                },
+                PartitionHandle::spawn(
+                    0,
+                    PartitionConfigBuilder::default()
+                        .base_dir("./data/test-0".to_string())
+                        .partition_id(0)
+                        .topic_id("test".to_string())
+                        .channel_size(100)
+                        .segment_bytes(100)
+                        .broker_id(0)
+                        .build()
+                        .unwrap(),
+                ),
+            )]),
+            brokers: vec![],
+            config: BrokerConfig {
+                node_id: 1,
+                host: "localhost".to_string(),
+                port: 9092,
+                topics: vec![TopicConfig {
+                    partitions: vec![PartitionConfig {
+                        segment_bytes: 100,
+                        channel_size: 100,
+                        replicas: vec![],
+                        broker_id: 0,
+                        base_dir: "./data/test-0".to_string(),
+                        partition_id: 0,
+                        topic_id: "test".to_string(),
+                    }],
+                }],
+            },
+        }
     }
 
     pub fn with_partitions(partitions: HashMap<TopicPartition, Arc<PartitionHandle>>) -> Self {
@@ -534,8 +575,7 @@ mod tests {
         let resp = broker.handle(metadata_frame()).await.unwrap();
         match resp.body {
             FrameBody::MetadataResponse(r) => {
-                let total_partitions: usize =
-                    r.topics.iter().map(|t| t.partitions.len()).sum();
+                let total_partitions: usize = r.topics.iter().map(|t| t.partitions.len()).sum();
                 assert_eq!(total_partitions, 3);
             }
             _ => panic!("expected MetadataResponse"),
