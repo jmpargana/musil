@@ -1,10 +1,18 @@
 use crate::protocol::error_codes::ErrorCode;
 
+#[derive(Debug)]
 pub struct MetadataRequest {
     pub topics: Vec<String>,
     pub allow_auto_topic_creation: bool,
 }
 
+impl MetadataRequest {
+    pub fn get_size(&self) -> u32 {
+        4 + self.topics.iter().map(|t| 2 + t.len() as u32).sum::<u32>() + 1
+    }
+}
+
+#[derive(Debug)]
 pub struct MetadataResponse {
     pub throttle_time_ms: u32,
     pub brokers: Vec<BrokerMetadata>,
@@ -25,6 +33,7 @@ impl MetadataResponse {
     }
 }
 
+#[derive(Debug)]
 pub struct BrokerMetadata {
     pub node_id: i32,
     pub host: String,
@@ -37,6 +46,7 @@ impl BrokerMetadata {
     }
 }
 
+#[derive(Debug)]
 pub struct TopicMetadata {
     pub error_code: ErrorCode,
     pub name: String,
@@ -51,6 +61,7 @@ impl TopicMetadata {
     }
 }
 
+#[derive(Debug)]
 pub struct PartitionMetadata {
     pub error_code: ErrorCode,
     pub partition_index: i32,

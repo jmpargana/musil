@@ -1,5 +1,6 @@
 use crate::protocol::fetch::response::partition_response::PartitionResponse;
 
+#[derive(Debug)]
 pub struct TopicResponse {
     pub topic: String,
     pub partitions: Vec<PartitionResponse>,
@@ -7,6 +8,7 @@ pub struct TopicResponse {
 
 impl TopicResponse {
     pub fn get_size(&self) -> u32 {
-        self.topic.len() as u32 + self.partitions.iter().map(|p| p.get_size()).sum::<u32>()
+        // topic_len_prefix(2) + topic_bytes + partitions_count(4) + each partition
+        2 + self.topic.len() as u32 + 4 + self.partitions.iter().map(|p| p.get_size()).sum::<u32>()
     }
 }

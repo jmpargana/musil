@@ -47,13 +47,11 @@ impl ProducePartitionResponse {
         }
     }
 
-    // TODO: maybe option should have an additional byte or 2 to represent (tag0).
     pub(crate) fn get_size(&self) -> u32 {
-        let current_leader_size = if let Some(_) = &self.current_leader {
-            8
-        } else {
-            0
-        };
-        4 + 2 + 8 + 8 + 8 + self.error_message.len() as u32 + current_leader_size
+        // index(4) + error_code(2) + base_offset(8) + log_append_time_ms(8) + log_start_offset(8)
+        // + error_message_len_prefix(2) + error_message_bytes
+        // + current_leader_flag(1) + optional leader(i32+u32 = 8)
+        let current_leader_size = if self.current_leader.is_some() { 1 + 8 } else { 1 };
+        4 + 2 + 8 + 8 + 8 + 2 + self.error_message.len() as u32 + current_leader_size
     }
 }

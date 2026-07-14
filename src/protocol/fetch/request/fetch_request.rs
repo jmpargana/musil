@@ -1,5 +1,6 @@
 use crate::protocol::fetch::request::fetch_topic::FetchTopic;
 
+#[derive(Debug)]
 pub struct FetchRequest {
     pub replica_id: i32,
     // TODO: ignoring these fields for now

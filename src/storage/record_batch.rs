@@ -3,6 +3,7 @@ use std::{fs::File, os::unix::fs::FileExt};
 use bytes::{BufMut, Bytes, BytesMut};
 
 // TODO: there's way more information here. I'm starting with the basic
+#[derive(Debug)]
 pub struct RecordBatch {
     pub base_offset: u64,
     pub batch_length: u32, // how many bytes follow (including fields until records)
@@ -12,8 +13,8 @@ pub struct RecordBatch {
 
 impl RecordBatch {
     pub fn get_size(&self) -> u32 {
-        8 + self.batch_length
-        // or 8 + 4 + 4 + self.records.len()
+        // base_offset(8) + batch_length_field(4) + batch_length bytes = 12 + batch_length
+        12 + self.batch_length
     }
 
     pub fn update_base_offset(&mut self, offset: u64) {
@@ -103,10 +104,20 @@ mod tests {
     }
 
     #[test]
-    fn get_size_equals_8_plus_batch_length() {
+    fn get_size_equals_12_plus_batch_length() {
         let records = vec![Record::new(0, b"key", b"value")];
         let batch = make_batch(0, &records);
-        assert_eq!(batch.get_size(), 8 + batch.batch_length);
+        // base_offset(8) + batch_length_field(4) + batch_length bytes
+        assert_eq!(batch.get_size(), 12 + batch.batch_length);
+    }
+
+    #[test]
+    fn get_size_matches_encode_header_plus_records() {
+        let records = vec![Record::new(0, b"key", b"value")];
+        let batch = make_batch(10, &records);
+        let header = batch.encode_header(); // 16 bytes
+        let wire_len = (header.len() + batch.records.len()) as u32;
+        assert_eq!(batch.get_size(), wire_len);
     }
 
     #[test]

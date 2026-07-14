@@ -504,6 +504,106 @@ mod tests {
 
     // --- multiple partitions in one request ---
 
+    // --- handle_metadata ---
+
+    fn metadata_frame() -> Frame {
+        Frame {
+            size: 0,
+            header: make_header(ApiKey::Metadata),
+            body: FrameBody::Metadata(crate::protocol::metadata::MetadataRequest {
+                topics: vec![],
+                allow_auto_topic_creation: false,
+            }),
+        }
+    }
+
+    #[tokio::test]
+    async fn metadata_returns_metadata_response() {
+        let dir = tempdir::TempDir::new("broker-test").unwrap();
+        let broker = make_broker(&dir, &[("orders", &[0])]);
+
+        let resp = broker.handle(metadata_frame()).await.unwrap();
+        assert!(matches!(resp.body, FrameBody::MetadataResponse(_)));
+    }
+
+    #[tokio::test]
+    async fn metadata_response_lists_all_partitions() {
+        let dir = tempdir::TempDir::new("broker-test").unwrap();
+        let broker = make_broker(&dir, &[("orders", &[0, 1]), ("events", &[0])]);
+
+        let resp = broker.handle(metadata_frame()).await.unwrap();
+        match resp.body {
+            FrameBody::MetadataResponse(r) => {
+                let total_partitions: usize =
+                    r.topics.iter().map(|t| t.partitions.len()).sum();
+                assert_eq!(total_partitions, 3);
+            }
+            _ => panic!("expected MetadataResponse"),
+        }
+    }
+
+    #[tokio::test]
+    async fn metadata_response_preserves_correlation_id() {
+        let dir = tempdir::TempDir::new("broker-test").unwrap();
+        let broker = make_broker(&dir, &[("orders", &[0])]);
+
+        let mut frame = metadata_frame();
+        frame.header.correlation_id = 99;
+        let resp = broker.handle(frame).await.unwrap();
+        assert_eq!(resp.header.correlation_id, 99);
+    }
+
+    #[tokio::test]
+    async fn metadata_response_no_error_code() {
+        let dir = tempdir::TempDir::new("broker-test").unwrap();
+        let broker = make_broker(&dir, &[("orders", &[0])]);
+
+        let resp = broker.handle(metadata_frame()).await.unwrap();
+        match resp.body {
+            FrameBody::MetadataResponse(r) => {
+                assert_eq!(r.error_code, crate::protocol::error_codes::ErrorCode::None);
+                for topic in &r.topics {
+                    assert_eq!(
+                        topic.error_code,
+                        crate::protocol::error_codes::ErrorCode::None
+                    );
+                    for partition in &topic.partitions {
+                        assert_eq!(
+                            partition.error_code,
+                            crate::protocol::error_codes::ErrorCode::None
+                        );
+                    }
+                }
+            }
+            _ => panic!("expected MetadataResponse"),
+        }
+    }
+
+    #[tokio::test]
+    async fn metadata_response_empty_broker_has_no_topics() {
+        let dir = tempdir::TempDir::new("broker-test").unwrap();
+        let broker = make_broker(&dir, &[]);
+
+        let resp = broker.handle(metadata_frame()).await.unwrap();
+        match resp.body {
+            FrameBody::MetadataResponse(r) => {
+                assert!(r.topics.is_empty());
+            }
+            _ => panic!("expected MetadataResponse"),
+        }
+    }
+
+    #[tokio::test]
+    async fn metadata_response_size_matches_encoded_payload() {
+        let dir = tempdir::TempDir::new("broker-test").unwrap();
+        let broker = make_broker(&dir, &[("orders", &[0, 1])]);
+
+        let resp = broker.handle(metadata_frame()).await.unwrap();
+        let encoded = resp.encode();
+        let declared_size = u32::from_be_bytes(encoded[0..4].try_into().unwrap());
+        assert_eq!(declared_size as usize, encoded.len() - 4);
+    }
+
     #[tokio::test]
     async fn produce_multiple_partitions_all_get_responses() {
         let dir = tempdir::TempDir::new("broker-test").unwrap();

@@ -3,8 +3,10 @@ use bytes::{BufMut, Bytes, BytesMut};
 use crate::protocol::{
     body::FrameBody,
     codec::{ParseError, RequestDecoder},
-    header::RequestHeader,
+    header::{ApiKey, RequestHeader},
 };
+
+use rand::RngExt;
 
 pub mod body;
 pub mod codec;
@@ -14,6 +16,7 @@ pub mod header;
 pub mod metadata;
 pub mod produce;
 
+#[derive(Debug)]
 pub struct Frame {
     pub size: u32,
     pub header: RequestHeader,
@@ -21,6 +24,22 @@ pub struct Frame {
 }
 
 impl Frame {
+    pub fn new(api_key: ApiKey, body: FrameBody) -> Self {
+        let mut rng = rand::rng();
+        let correlation_id: u32 = rng.random();
+
+        let header = RequestHeader {
+            api_key,
+            api_version: 0,
+            correlation_id,
+            client_id: None,
+        };
+
+        let size = header.get_size() + body.get_size();
+
+        Self { size, header, body }
+    }
+
     // This method might be redundant if using sendfile from producer...
     pub fn encode(&self) -> Bytes {
         let mut buf = BytesMut::new();
@@ -793,5 +812,189 @@ mod tests {
         let encoded = frame.encode();
         let declared_size = u32::from_be_bytes(encoded[0..4].try_into().unwrap());
         assert_eq!(declared_size as usize, encoded.len() - 4);
+    }
+
+    // --- MetadataResponse encode roundtrip ---
+
+    fn metadata_response_frame(
+        brokers: Vec<crate::protocol::metadata::BrokerMetadata>,
+        topics: Vec<crate::protocol::metadata::TopicMetadata>,
+        controller_id: i32,
+        error_code: crate::protocol::error_codes::ErrorCode,
+    ) -> Frame {
+        use crate::protocol::metadata::MetadataResponse;
+        Frame {
+            size: 0,
+            header: make_header(ApiKey::Metadata, 1, None),
+            body: FrameBody::MetadataResponse(MetadataResponse {
+                throttle_time_ms: 0,
+                brokers,
+                controller_id,
+                topics,
+                error_code,
+            }),
+        }
+    }
+
+    #[test]
+    fn metadata_response_encode_size_field_matches_payload() {
+        use crate::protocol::error_codes::ErrorCode;
+        use crate::protocol::metadata::{BrokerMetadata, PartitionMetadata, TopicMetadata};
+
+        let frame = metadata_response_frame(
+            vec![BrokerMetadata {
+                node_id: 1,
+                host: "localhost".into(),
+                port: 9092,
+            }],
+            vec![TopicMetadata {
+                error_code: ErrorCode::None,
+                name: "orders".into(),
+                partitions: vec![PartitionMetadata {
+                    error_code: ErrorCode::None,
+                    partition_index: 0,
+                    leader_id: 1,
+                    replica_nodes: 1,
+                    isr_nodes: 1,
+                    offline_replicas: 0,
+                }],
+            }],
+            1,
+            ErrorCode::None,
+        );
+        let encoded = frame.encode();
+        let declared_size = u32::from_be_bytes(encoded[0..4].try_into().unwrap());
+        assert_eq!(declared_size as usize, encoded.len() - 4);
+    }
+
+    #[test]
+    fn metadata_response_empty_encodes_and_size_matches() {
+        use crate::protocol::error_codes::ErrorCode;
+        let frame = metadata_response_frame(vec![], vec![], 0, ErrorCode::None);
+        let encoded = frame.encode();
+        let declared_size = u32::from_be_bytes(encoded[0..4].try_into().unwrap());
+        assert_eq!(declared_size as usize, encoded.len() - 4);
+    }
+
+    #[test]
+    fn metadata_response_multiple_brokers_and_topics_size_matches() {
+        use crate::protocol::error_codes::ErrorCode;
+        use crate::protocol::metadata::{BrokerMetadata, PartitionMetadata, TopicMetadata};
+
+        let frame = metadata_response_frame(
+            vec![
+                BrokerMetadata {
+                    node_id: 1,
+                    host: "host-a".into(),
+                    port: 9092,
+                },
+                BrokerMetadata {
+                    node_id: 2,
+                    host: "host-b".into(),
+                    port: 9093,
+                },
+            ],
+            vec![
+                TopicMetadata {
+                    error_code: ErrorCode::None,
+                    name: "orders".into(),
+                    partitions: vec![
+                        PartitionMetadata {
+                            error_code: ErrorCode::None,
+                            partition_index: 0,
+                            leader_id: 1,
+                            replica_nodes: 2,
+                            isr_nodes: 2,
+                            offline_replicas: 0,
+                        },
+                        PartitionMetadata {
+                            error_code: ErrorCode::None,
+                            partition_index: 1,
+                            leader_id: 2,
+                            replica_nodes: 2,
+                            isr_nodes: 1,
+                            offline_replicas: 1,
+                        },
+                    ],
+                },
+                TopicMetadata {
+                    error_code: ErrorCode::None,
+                    name: "events".into(),
+                    partitions: vec![PartitionMetadata {
+                        error_code: ErrorCode::None,
+                        partition_index: 0,
+                        leader_id: 1,
+                        replica_nodes: 1,
+                        isr_nodes: 1,
+                        offline_replicas: 0,
+                    }],
+                },
+            ],
+            1,
+            ErrorCode::None,
+        );
+        let encoded = frame.encode();
+        let declared_size = u32::from_be_bytes(encoded[0..4].try_into().unwrap());
+        assert_eq!(declared_size as usize, encoded.len() - 4);
+    }
+
+    #[test]
+    fn metadata_response_get_size_matches_encoded_payload() {
+        use crate::protocol::error_codes::ErrorCode;
+        use crate::protocol::metadata::{
+            BrokerMetadata, MetadataResponse, PartitionMetadata, TopicMetadata,
+        };
+
+        let frame = metadata_response_frame(
+            vec![BrokerMetadata {
+                node_id: 0,
+                host: "localhost".into(),
+                port: 9092,
+            }],
+            vec![TopicMetadata {
+                error_code: ErrorCode::None,
+                name: "t".into(),
+                partitions: vec![PartitionMetadata {
+                    error_code: ErrorCode::None,
+                    partition_index: 0,
+                    leader_id: 0,
+                    replica_nodes: 1,
+                    isr_nodes: 1,
+                    offline_replicas: 0,
+                }],
+            }],
+            0,
+            ErrorCode::None,
+        );
+
+        // get_size() must equal (encoded_len - 4_size_prefix - header_size)
+        let response = MetadataResponse {
+            throttle_time_ms: 0,
+            brokers: vec![BrokerMetadata {
+                node_id: 0,
+                host: "localhost".into(),
+                port: 9092,
+            }],
+            controller_id: 0,
+            topics: vec![TopicMetadata {
+                error_code: ErrorCode::None,
+                name: "t".into(),
+                partitions: vec![PartitionMetadata {
+                    error_code: ErrorCode::None,
+                    partition_index: 0,
+                    leader_id: 0,
+                    replica_nodes: 1,
+                    isr_nodes: 1,
+                    offline_replicas: 0,
+                }],
+            }],
+            error_code: ErrorCode::None,
+        };
+        let encoded = frame.encode();
+        let header = make_header(ApiKey::Metadata, 1, None);
+        assert_eq!(
+            response.get_size(),
+            encoded.len() as u32 - 4 - header.get_size()
+        );
     }
 }

@@ -1,7 +1,7 @@
 use derive_builder::Builder;
 
 // TODO: do I need Request or Response?
-#[derive(Builder, Clone)]
+#[derive(Builder, Clone, Debug)]
 pub struct RequestHeader {
     pub api_key: ApiKey,
     pub api_version: u32,

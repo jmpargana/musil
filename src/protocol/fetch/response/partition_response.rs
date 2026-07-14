@@ -2,6 +2,7 @@ use crate::protocol::error_codes::ErrorCode;
 use crate::storage::record_batch::RecordBatch;
 
 // TODO: include transactional fields.
+#[derive(Debug)]
 pub struct PartitionResponse {
     pub partition_index: u32,
     pub error_code: ErrorCode,
@@ -23,7 +24,8 @@ impl PartitionResponse {
     }
 
     pub fn get_size(&self) -> u32 {
-        // each field plus records
-        4 + 2 + 8 + 8 + self.records.iter().map(|b| b.get_size()).sum::<u32>()
+        // partition_index(4) + error_code(2) + high_watermark(8) + log_start_offset(8)
+        // + records_count(4) + each batch
+        4 + 2 + 8 + 8 + 4 + self.records.iter().map(|b| b.get_size()).sum::<u32>()
     }
 }
