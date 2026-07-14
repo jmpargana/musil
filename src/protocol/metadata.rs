@@ -1,4 +1,4 @@
-use crate::{broker::BrokerConfig as BrokerBrokerConfig, protocol::error_codes::ErrorCode};
+use crate::protocol::error_codes::ErrorCode;
 
 pub struct MetadataRequest {
     pub topics: Vec<String>,

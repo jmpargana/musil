@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io, ops::Deref, sync::Arc, time::Instant};
+use std::{collections::HashMap, io, sync::Arc, time::Instant};
 
 use derive_builder::Builder;
 
@@ -167,7 +167,7 @@ impl Broker {
     }
 
     async fn handle_metadata(&self, req: Frame) -> io::Result<Frame> {
-        let FrameBody::Metadata(body) = req.body else {
+        let FrameBody::Metadata(_body) = req.body else {
             unreachable!()
         };
         let now = Instant::now();
