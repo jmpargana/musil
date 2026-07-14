@@ -81,6 +81,69 @@ impl LogSegment {
         })
     }
 
+    // When the broker restarts, it needs to load the `bytes_since_last_index` and `index_write_pos`
+    // so that it doesn't override or keep a wrong offset on the new position being appended.
+    // This method does a bit of duplicated work, but has that logic extracted.
+    pub fn open(opts: SegmentConfig) -> io::Result<Self> {
+        let base_path = Path::new(&opts.base_dir);
+
+        let log_path = base_path.join(format!("{:020}.log", opts.base_offset));
+        let index_path = base_path.join(format!("{:020}.index", opts.base_offset));
+
+        let log_file = OpenOptions::new().read(true).write(true).open(log_path)?;
+
+        let index_file_handle = OpenOptions::new().read(true).write(true).open(index_path)?;
+
+        let existing_size = log_file.metadata()?.len() as usize;
+
+        let max_entries = opts.segment_bytes / opts.index_interval_bytes + 1;
+        let index_size = max_entries * INDEX_ENTRY_SIZE;
+
+        let index_file = unsafe {
+            MmapOptions::new()
+                .len(index_size)
+                .map_mut(&index_file_handle)?
+        };
+
+        // Count valid index entries. Unwritten slots are all zeros. The first entry can
+        // legitimately have offset=0 and pos=0 (first batch at start of file), so we use
+        // existing_size as the gate: if the log is empty there are no valid entries. For
+        // entries after the first (i > 0), all-zeros reliably means unwritten because any
+        // real second batch starts at pos > 0 (at least 13 bytes into the file).
+        let mut index_count = 0;
+        if existing_size > 0 {
+            for i in 0..max_entries {
+                let base = i * INDEX_ENTRY_SIZE;
+                let offset_bytes: [u8; 8] = index_file[base..base + 8].try_into().unwrap();
+                let pos_bytes: [u8; 8] = index_file[base + 8..base + 16].try_into().unwrap();
+                if i > 0 && offset_bytes == [0; 8] && pos_bytes == [0; 8] {
+                    break;
+                }
+                index_count += 1;
+            }
+        }
+
+        let index_write_pos = index_count * INDEX_ENTRY_SIZE;
+
+        let segment = Arc::new(SegmentView::new(
+            opts.base_offset,
+            log_file.try_clone()?,
+            index_file_handle.try_clone()?,
+        ));
+
+        Ok(Self {
+            segment,
+            log_file,
+            index_file,
+            index_write_pos,
+            index_count,
+            size: existing_size,
+            // Don't force an immediate index write on the first append after recovery.
+            bytes_since_last_index: 0,
+            index_threshold_bytes: opts.index_interval_bytes,
+        })
+    }
+
     pub fn append_batch(&mut self, batch: &RecordBatch) -> io::Result<()> {
         let log_pos = self.log_file.metadata()?.len();
 
@@ -92,7 +155,9 @@ impl LogSegment {
         // 8 (base_offset) + 4 (batch_length) + batch_length bytes are written
         self.bytes_since_last_index += 12 + batch.batch_length as usize;
 
-        if self.bytes_since_last_index >= self.index_threshold_bytes {
+        if self.bytes_since_last_index >= self.index_threshold_bytes
+            && self.index_write_pos + INDEX_ENTRY_SIZE <= self.index_file.len()
+        {
             let pos = self.index_write_pos;
 
             self.index_file[pos..pos + 8].copy_from_slice(&batch.base_offset.to_le_bytes());

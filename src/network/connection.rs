@@ -236,6 +236,48 @@ mod tests {
         assert_eq!(correlation_id, 2);
     }
 
+    fn metadata_frame(correlation_id: u32) -> Frame {
+        use crate::protocol::metadata::MetadataRequest;
+        Frame {
+            size: 0,
+            header: RequestHeaderBuilder::default()
+                .api_key(ApiKey::Metadata)
+                .api_version(0)
+                .correlation_id(correlation_id)
+                .client_id(None)
+                .build()
+                .unwrap(),
+            body: FrameBody::Metadata(MetadataRequest {
+                topics: vec![],
+                allow_auto_topic_creation: false,
+            }),
+        }
+    }
+
+    // Regression: BytesMut::with_capacity(n) sets len=0, so read_exact reads 0 bytes,
+    // and the subsequent Frame::decode panics with "advance out of bounds: len is 0 but advancing by 4".
+    // Fix: use BytesMut::zeroed(n) so the slice has the correct length before read_exact.
+    #[tokio::test]
+    async fn read_response_with_zeroed_not_with_capacity() {
+        let broker = make_broker("orders", 0);
+        let mut client = spawn_connection(broker).await;
+
+        send_frame(&mut client, metadata_frame(7)).await;
+
+        let size = client.read_u32().await.unwrap();
+        // with_capacity allocates but len stays 0 — read_exact reads nothing
+        assert_eq!(BytesMut::with_capacity(size as usize).len(), 0, "with_capacity leaves len=0");
+
+        // zeroed sets len correctly — read_exact fills the buffer
+        let mut buf = BytesMut::zeroed(size as usize);
+        client.read_exact(&mut buf).await.unwrap();
+        assert_eq!(buf.len(), size as usize);
+
+        // decoding must succeed without panic
+        let frame = Frame::decode(&buf.freeze(), size).unwrap();
+        assert_eq!(frame.header.correlation_id, 7);
+    }
+
     #[tokio::test]
     async fn connection_closes_on_bad_frame() {
         let broker = make_broker("orders", 0);

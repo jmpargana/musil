@@ -60,7 +60,9 @@ impl PartitionState {
             replica.log_end_offset = max(replica.log_end_offset, leo);
         }
 
-        self.high_watermark = replicas.iter().map(|r| r.log_end_offset).min().unwrap();
+        if let Some(min_leo) = replicas.iter().map(|r| r.log_end_offset).min() {
+            self.high_watermark = min_leo;
+        }
 
         self
     }

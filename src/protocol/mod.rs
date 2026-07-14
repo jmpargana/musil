@@ -2,7 +2,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 
 use crate::protocol::{
     body::FrameBody,
-    codec::{ParseError, RequestDecoder},
+    codec::{ParseError, RequestDecoder, ResponseDecoder},
     header::{ApiKey, RequestHeader},
 };
 
@@ -189,6 +189,12 @@ impl Frame {
 
     pub fn decode(buf: &Bytes, size: u32) -> Result<Self, ParseError> {
         let mut decoder = RequestDecoder;
+        let mut buf = buf.clone();
+        decoder.parse(&mut buf, size)
+    }
+
+    pub fn decode_response(buf: &Bytes, size: u32) -> Result<Self, ParseError> {
+        let mut decoder = ResponseDecoder;
         let mut buf = buf.clone();
         decoder.parse(&mut buf, size)
     }

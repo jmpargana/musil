@@ -69,35 +69,118 @@ impl From<PartitionConfig> for PartitionActorConfig {
     }
 }
 
+// Scan a log segment file from offset 0 and sum records_count across all batches.
+// Returns the total number of records, which when added to the segment's base_offset gives leo.
+fn scan_records_count(base_dir: &str, base_offset: u64, size: usize) -> io::Result<u64> {
+    use std::os::unix::fs::FileExt;
+    let path = Path::new(base_dir).join(format!("{:020}.log", base_offset));
+    let file = std::fs::File::open(path)?;
+    let mut pos: u64 = 0;
+    let mut total: u64 = 0;
+    while pos + 12 <= size as u64 {
+        let mut header = [0u8; 12];
+        file.read_at(&mut header, pos)?;
+        let batch_length = u32::from_be_bytes(header[8..12].try_into().unwrap());
+        // records_count is the first u32 inside the batch_length bytes (after base_offset+batch_length_field)
+        if pos + 16 > size as u64 {
+            break;
+        }
+        let mut count_buf = [0u8; 4];
+        file.read_at(&mut count_buf, pos + 12)?;
+        let records_count = u32::from_be_bytes(count_buf);
+        total += records_count as u64;
+        pos += 12 + batch_length as u64;
+    }
+    Ok(total)
+}
+
 impl PartitionActor {
     pub fn new(
         rx: mpsc::Receiver<PartitionCommand>,
         snapshot: Arc<ArcSwap<PartitionState>>,
         config: PartitionActorConfig,
     ) -> io::Result<Self> {
-        let cloned = config.base_dir.clone();
+        std::fs::create_dir_all(&config.base_dir)?;
 
-        let cfg = SegmentConfigBuilder::default()
-            .base_dir(cloned.clone())
-            .base_offset(0)
-            .segment_bytes(config.segment_bytes)
-            .build()
-            .unwrap();
+        let mut log_offsets: Vec<u64> = std::fs::read_dir(&config.base_dir)?
+            .filter_map(|e| e.ok())
+            .filter_map(|e| {
+                let name = e.file_name().into_string().ok()?;
+                name.strip_suffix(".log")?.parse::<u64>().ok()
+            })
+            .collect();
+        log_offsets.sort_unstable();
 
-        let mut active = LogSegment::new(cfg)?;
-        let state = snapshot.load_full();
+        let (mut active, leo) = if log_offsets.is_empty() {
+            // Fresh start. It'll create new segments from scratch.
+            let cfg = SegmentConfigBuilder::default()
+                .base_dir(config.base_dir.clone())
+                .base_offset(0)
+                .segment_bytes(config.segment_bytes)
+                .build()
+                .unwrap();
+            let seg = LogSegment::new(cfg)?;
+            (seg, 0u64)
+        } else {
+            // Reads what was already created loading correct leo.
+            let last_base = *log_offsets.last().unwrap();
+            let cfg = SegmentConfigBuilder::default()
+                .base_dir(config.base_dir.clone())
+                .base_offset(last_base)
+                .segment_bytes(config.segment_bytes)
+                .build()
+                .unwrap();
+            let seg = LogSegment::open(cfg)?;
+            let leo = last_base + scan_records_count(&config.base_dir, last_base, seg.size)?;
+            (seg, leo)
+        };
 
-        let mut segments = state.segments.as_ref().to_vec();
+        let mut segments: Vec<Arc<crate::segment::metadata::SegmentView>> = Vec::new();
+        let frozen_count = if log_offsets.is_empty() {
+            0
+        } else {
+            log_offsets.len() - 1
+        };
+        for &base_offset in &log_offsets[..frozen_count] {
+            let cfg = SegmentConfigBuilder::default()
+                .base_dir(config.base_dir.clone())
+                .base_offset(base_offset)
+                .segment_bytes(config.segment_bytes)
+                .build()
+                .unwrap();
+            let mut seg = LogSegment::open(cfg)?;
+            segments.push(seg.publish());
+        }
         segments.push(active.publish());
 
-        let next = Arc::new((*state).clone().consume(segments.into(), 0, 0));
+        // If the recovered active segment is already at capacity, rotate to a new one immediately
+        // so the first append doesn't write into a full segment.
+        if active.size >= config.segment_bytes && !log_offsets.is_empty() {
+            let cfg = SegmentConfigBuilder::default()
+                .base_dir(config.base_dir.clone())
+                .base_offset(leo)
+                .segment_bytes(config.segment_bytes)
+                .build()
+                .unwrap();
+            let mut new_active = LogSegment::new(cfg)?;
+            segments.push(new_active.publish());
+            active = new_active;
+        }
+
+        let state = snapshot.load_full();
+        let hw = if state.replicas.is_empty() {
+            leo
+        } else {
+            state.high_watermark
+        };
+        let next = Arc::new((*state).clone().consume(segments.into(), leo, hw));
         snapshot.store(next);
 
         Ok(Self {
             rx,
             active,
             snapshot,
-            acks_pending_replication: VecDeque::new(), // TODO: add capacity based on replica size
+            acks_pending_replication: VecDeque::new(),
             base_dir: config.base_dir,
             broker_id: config.broker_id,
             partition_id: config.partition_id,
@@ -178,6 +261,7 @@ impl PartitionActor {
                             done.take().unwrap().send(partition_response).unwrap();
                         }
                         Acks::All => {
+                            // FIXME: should actually only add pending request if there is at least one replica.
                             self.acks_pending_replication.push_back(PendingResponse {
                                 hw: leo,
                                 base_offset,

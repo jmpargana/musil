@@ -5,20 +5,36 @@ use bytes::{Buf, Bytes};
 use crate::{
     protocol::{
         Frame,
-        fetch::request::{
-            fetch_partition::FetchPartition, fetch_request::FetchRequest, fetch_topic::FetchTopic,
+        fetch::{
+            request::{
+                fetch_partition::FetchPartition, fetch_request::FetchRequest,
+                fetch_topic::FetchTopic,
+            },
+            response::{
+                fetch_response::FetchResponse, partition_response::PartitionResponse,
+                topic_response::TopicResponse,
+            },
         },
         header::{ApiKey, RequestHeader},
-        metadata::MetadataRequest,
-        produce::request::{
-            produce_partition::ProducePartition, produce_request::ProduceRequest,
-            produce_topic::ProduceTopic,
+        metadata::{
+            BrokerMetadata, MetadataRequest, MetadataResponse, PartitionMetadata, TopicMetadata,
+        },
+        produce::{
+            request::{
+                produce_partition::ProducePartition, produce_request::ProduceRequest,
+                produce_topic::ProduceTopic,
+            },
+            response::{
+                partition_response::{CurrentLeader, ProducePartitionResponse},
+                produce_response::ProduceResponse,
+                topic_response::ProduceTopicResponse,
+            },
         },
     },
     storage::record_batch::RecordBatch,
 };
 
-use super::body::FrameBody;
+use super::{body::FrameBody, error_codes::ErrorCode};
 
 // RequestDecoder doesn't own buffer, instead it consumes just enough to find the size and then creates an event with fd ptr and size
 #[derive(Debug)]
@@ -169,12 +185,197 @@ impl RequestDecoder {
     }
 }
 
+#[derive(Debug)]
+pub struct ResponseDecoder;
+
+impl ResponseDecoder {
+    pub fn parse(&mut self, buf: &mut Bytes, size: u32) -> Result<Frame, ParseError> {
+        let api_key = buf.get_u32();
+        let api_version = buf.get_u32();
+        let correlation_id = buf.get_u32();
+
+        let client_id_len = buf.get_i16();
+        let client_id = if client_id_len >= 0 {
+            Some(
+                String::from_utf8(buf.split_to(client_id_len as usize).to_vec())
+                    .map_err(|_| ParseError::InvalidClientId)?,
+            )
+        } else {
+            None
+        };
+
+        let api_key: ApiKey = api_key.try_into().map_err(|_| ParseError::InvalidApiKey)?;
+
+        let header = RequestHeader {
+            api_key,
+            api_version,
+            correlation_id,
+            client_id,
+        };
+
+        let body = match api_key {
+            ApiKey::Metadata => self.parse_metadata_response(buf)?,
+            ApiKey::Produce => self.parse_produce_response(buf)?,
+            ApiKey::Fetch => self.parse_fetch_response(buf)?,
+        };
+
+        Ok(Frame { size, header, body })
+    }
+
+    fn parse_metadata_response(&self, buf: &mut Bytes) -> Result<FrameBody, ParseError> {
+        let throttle_time_ms = buf.get_u32();
+
+        let brokers_count = buf.get_u32();
+        let mut brokers = Vec::new();
+        for _ in 0..brokers_count {
+            let node_id = buf.get_i32();
+            let host_len = buf.get_u16();
+            let host = String::from_utf8_lossy(&buf.split_to(host_len as usize)).to_string();
+            let port = buf.get_i32();
+            brokers.push(BrokerMetadata { node_id, host, port });
+        }
+
+        let controller_id = buf.get_i32();
+
+        let topics_count = buf.get_u32();
+        let mut topics = Vec::new();
+        for _ in 0..topics_count {
+            let error_code = ErrorCode::try_from(buf.get_i16()).unwrap_or(ErrorCode::UnknownServerError);
+            let name_len = buf.get_u16();
+            let name = String::from_utf8_lossy(&buf.split_to(name_len as usize)).to_string();
+            let partitions_count = buf.get_u32();
+            let mut partitions = Vec::new();
+            for _ in 0..partitions_count {
+                let p_error_code = ErrorCode::try_from(buf.get_i16()).unwrap_or(ErrorCode::UnknownServerError);
+                let partition_index = buf.get_i32();
+                let leader_id = buf.get_i32();
+                let replica_nodes = buf.get_u32();
+                let isr_nodes = buf.get_u32();
+                let offline_replicas = buf.get_u32();
+                partitions.push(PartitionMetadata {
+                    error_code: p_error_code,
+                    partition_index,
+                    leader_id,
+                    replica_nodes,
+                    isr_nodes,
+                    offline_replicas,
+                });
+            }
+            topics.push(TopicMetadata { error_code, name, partitions });
+        }
+
+        let error_code = ErrorCode::try_from(buf.get_i16()).unwrap_or(ErrorCode::UnknownServerError);
+
+        Ok(FrameBody::MetadataResponse(MetadataResponse {
+            throttle_time_ms,
+            brokers,
+            controller_id,
+            topics,
+            error_code,
+        }))
+    }
+
+    fn parse_produce_response(&self, buf: &mut Bytes) -> Result<FrameBody, ParseError> {
+        let throttle_time_ms = buf.get_u32();
+        let responses_count = buf.get_u32();
+        let mut responses = Vec::new();
+        for _ in 0..responses_count {
+            let topic_len = buf.get_u16();
+            let topic = String::from_utf8_lossy(&buf.split_to(topic_len as usize)).to_string();
+            let partition_count = buf.get_u32();
+            let mut partition_responses = Vec::new();
+            for _ in 0..partition_count {
+                let index = buf.get_u32();
+                let error_code = ErrorCode::try_from(buf.get_i16()).unwrap_or(ErrorCode::UnknownServerError);
+                let base_offset = buf.get_u64();
+                let log_append_time_ms = buf.get_u64();
+                let log_start_offset = buf.get_u64();
+                let error_message_len = buf.get_i16();
+                let error_message = if error_message_len > 0 {
+                    String::from_utf8_lossy(&buf.split_to(error_message_len as usize)).to_string()
+                } else {
+                    String::new()
+                };
+                let has_leader = buf.get_u8() != 0;
+                let current_leader = if has_leader {
+                    let leader_id = buf.get_i32();
+                    let leader_epoch = buf.get_u32();
+                    Some(CurrentLeader { leader_id, leader_epoch })
+                } else {
+                    None
+                };
+                partition_responses.push(ProducePartitionResponse {
+                    index,
+                    error_code,
+                    base_offset,
+                    log_append_time_ms,
+                    log_start_offset,
+                    error_message,
+                    current_leader,
+                });
+            }
+            responses.push(ProduceTopicResponse { topic, partition_responses });
+        }
+        Ok(FrameBody::ProduceResponse(ProduceResponse { throttle_time_ms, responses }))
+    }
+
+    fn parse_fetch_response(&self, buf: &mut Bytes) -> Result<FrameBody, ParseError> {
+        let throttle_time_ms = buf.get_u32();
+        let responses_count = buf.get_u32();
+        let mut responses = Vec::new();
+        for _ in 0..responses_count {
+            let topic_len = buf.get_u16();
+            let topic = String::from_utf8_lossy(&buf.split_to(topic_len as usize)).to_string();
+            let partitions_count = buf.get_u32();
+            let mut partitions = Vec::new();
+            for _ in 0..partitions_count {
+                let partition_index = buf.get_u32();
+                let error_code = ErrorCode::try_from(buf.get_i16()).unwrap_or(ErrorCode::UnknownServerError);
+                let high_watermark = buf.get_u64();
+                let log_start_offset = buf.get_u64();
+                let records_count = buf.get_u32();
+                let mut records = Vec::new();
+                for _ in 0..records_count {
+                    // header: base_offset(8) + batch_length(4) + records_count(4) = 16 bytes
+                    let base_offset = buf.get_u64();
+                    let batch_length = buf.get_u32();
+                    let batch_records_count = buf.get_u32();
+                    // records payload = batch_length - 4 (the 4 bytes already read as records_count)
+                    let records_payload = buf.split_to((batch_length - 4) as usize);
+                    records.push(RecordBatch {
+                        base_offset,
+                        batch_length,
+                        records_count: batch_records_count,
+                        records: records_payload,
+                    });
+                }
+                partitions.push(PartitionResponse {
+                    partition_index,
+                    error_code,
+                    high_watermark,
+                    log_start_offset,
+                    records,
+                });
+            }
+            responses.push(TopicResponse { topic, partitions });
+        }
+        Ok(FrameBody::FetchResponse(FetchResponse { throttle_time_ms, responses }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use bytes::{BufMut, Bytes, BytesMut};
 
     use crate::protocol::{
-        body::FrameBody, codec::RequestDecoder, header::ApiKey, produce::acks::Acks,
+        body::FrameBody,
+        codec::RequestDecoder,
+        fetch::response::{
+            fetch_response::FetchResponse, partition_response::PartitionResponse,
+            topic_response::TopicResponse,
+        },
+        header::{ApiKey, RequestHeaderBuilder},
+        produce::acks::Acks,
     };
     use crate::storage::record::Record;
     use crate::storage::record_batch::RecordBatch;
@@ -658,6 +859,464 @@ mod tests {
                 assert_eq!(req.topics[0].partitions[0].index, 3);
             }
             _ => panic!("expected produce frame"),
+        }
+    }
+
+    // --- response decoder roundtrips ---
+
+    fn encode_response(frame: Frame) -> Bytes {
+        frame.encode()
+    }
+
+    fn parse_full_response(encoded: Bytes) -> Result<Frame, ParseError> {
+        let size = u32::from_be_bytes(encoded[0..4].try_into().unwrap());
+        let mut body = encoded.slice(4..);
+        ResponseDecoder.parse(&mut body, size)
+    }
+
+    #[test]
+    fn metadata_response_decode_roundtrip() {
+        use crate::protocol::{
+            Frame,
+            body::FrameBody,
+            header::{ApiKey, RequestHeaderBuilder},
+            metadata::{BrokerMetadata, MetadataResponse, PartitionMetadata, TopicMetadata},
+        };
+        use crate::protocol::error_codes::ErrorCode;
+
+        let frame = Frame {
+            size: 0,
+            header: RequestHeaderBuilder::default()
+                .api_key(ApiKey::Metadata)
+                .api_version(0)
+                .correlation_id(42)
+                .client_id(None)
+                .build()
+                .unwrap(),
+            body: FrameBody::MetadataResponse(MetadataResponse {
+                throttle_time_ms: 5,
+                brokers: vec![BrokerMetadata { node_id: 1, host: "localhost".into(), port: 9092 }],
+                controller_id: 1,
+                topics: vec![TopicMetadata {
+                    error_code: ErrorCode::None,
+                    name: "orders".into(),
+                    partitions: vec![PartitionMetadata {
+                        error_code: ErrorCode::None,
+                        partition_index: 0,
+                        leader_id: 1,
+                        replica_nodes: 1,
+                        isr_nodes: 1,
+                        offline_replicas: 0,
+                    }],
+                }],
+                error_code: ErrorCode::None,
+            }),
+        };
+
+        let encoded = encode_response(frame);
+        let decoded = parse_full_response(encoded).unwrap();
+
+        assert_eq!(decoded.header.correlation_id, 42);
+        match decoded.body {
+            FrameBody::MetadataResponse(r) => {
+                assert_eq!(r.throttle_time_ms, 5);
+                assert_eq!(r.brokers.len(), 1);
+                assert_eq!(r.brokers[0].node_id, 1);
+                assert_eq!(r.brokers[0].host, "localhost");
+                assert_eq!(r.brokers[0].port, 9092);
+                assert_eq!(r.controller_id, 1);
+                assert_eq!(r.topics.len(), 1);
+                assert_eq!(r.topics[0].name, "orders");
+                assert_eq!(r.topics[0].partitions.len(), 1);
+                assert_eq!(r.topics[0].partitions[0].partition_index, 0);
+                assert_eq!(r.error_code, ErrorCode::None);
+            }
+            _ => panic!("expected MetadataResponse"),
+        }
+    }
+
+    #[test]
+    fn metadata_response_multiple_brokers_and_topics_roundtrip() {
+        use crate::protocol::{
+            Frame,
+            body::FrameBody,
+            header::{ApiKey, RequestHeaderBuilder},
+            metadata::{BrokerMetadata, MetadataResponse, PartitionMetadata, TopicMetadata},
+        };
+        use crate::protocol::error_codes::ErrorCode;
+
+        let frame = Frame {
+            size: 0,
+            header: RequestHeaderBuilder::default()
+                .api_key(ApiKey::Metadata)
+                .api_version(0)
+                .correlation_id(7)
+                .client_id(None)
+                .build()
+                .unwrap(),
+            body: FrameBody::MetadataResponse(MetadataResponse {
+                throttle_time_ms: 0,
+                brokers: vec![
+                    BrokerMetadata { node_id: 1, host: "host-a".into(), port: 9092 },
+                    BrokerMetadata { node_id: 2, host: "host-b".into(), port: 9093 },
+                ],
+                controller_id: 1,
+                topics: vec![
+                    TopicMetadata {
+                        error_code: ErrorCode::None,
+                        name: "orders".into(),
+                        partitions: vec![
+                            PartitionMetadata {
+                                error_code: ErrorCode::None,
+                                partition_index: 0,
+                                leader_id: 1,
+                                replica_nodes: 2,
+                                isr_nodes: 2,
+                                offline_replicas: 0,
+                            },
+                            PartitionMetadata {
+                                error_code: ErrorCode::None,
+                                partition_index: 1,
+                                leader_id: 2,
+                                replica_nodes: 2,
+                                isr_nodes: 1,
+                                offline_replicas: 1,
+                            },
+                        ],
+                    },
+                    TopicMetadata {
+                        error_code: ErrorCode::None,
+                        name: "events".into(),
+                        partitions: vec![PartitionMetadata {
+                            error_code: ErrorCode::None,
+                            partition_index: 0,
+                            leader_id: 1,
+                            replica_nodes: 1,
+                            isr_nodes: 1,
+                            offline_replicas: 0,
+                        }],
+                    },
+                ],
+                error_code: ErrorCode::None,
+            }),
+        };
+
+        let decoded = parse_full_response(encode_response(frame)).unwrap();
+        match decoded.body {
+            FrameBody::MetadataResponse(r) => {
+                assert_eq!(r.brokers.len(), 2);
+                assert_eq!(r.brokers[1].host, "host-b");
+                assert_eq!(r.topics.len(), 2);
+                assert_eq!(r.topics[0].partitions.len(), 2);
+                assert_eq!(r.topics[0].partitions[1].offline_replicas, 1);
+                assert_eq!(r.topics[1].name, "events");
+            }
+            _ => panic!("expected MetadataResponse"),
+        }
+    }
+
+    #[test]
+    fn produce_response_decode_roundtrip() {
+        use crate::protocol::{
+            Frame,
+            body::FrameBody,
+            header::{ApiKey, RequestHeaderBuilder},
+            produce::response::{
+                partition_response::{CurrentLeader, ProducePartitionResponse},
+                produce_response::ProduceResponse,
+                topic_response::ProduceTopicResponse,
+            },
+        };
+        use crate::protocol::error_codes::ErrorCode;
+
+        let frame = Frame {
+            size: 0,
+            header: RequestHeaderBuilder::default()
+                .api_key(ApiKey::Produce)
+                .api_version(0)
+                .correlation_id(99)
+                .client_id(None)
+                .build()
+                .unwrap(),
+            body: FrameBody::ProduceResponse(ProduceResponse {
+                throttle_time_ms: 3,
+                responses: vec![ProduceTopicResponse {
+                    topic: "orders".into(),
+                    partition_responses: vec![ProducePartitionResponse {
+                        index: 0,
+                        error_code: ErrorCode::None,
+                        base_offset: 42,
+                        log_append_time_ms: 0,
+                        log_start_offset: 0,
+                        error_message: "".into(),
+                        current_leader: Some(CurrentLeader { leader_id: 1, leader_epoch: 0 }),
+                    }],
+                }],
+            }),
+        };
+
+        let decoded = parse_full_response(encode_response(frame)).unwrap();
+        assert_eq!(decoded.header.correlation_id, 99);
+        match decoded.body {
+            FrameBody::ProduceResponse(r) => {
+                assert_eq!(r.throttle_time_ms, 3);
+                assert_eq!(r.responses.len(), 1);
+                assert_eq!(r.responses[0].topic, "orders");
+                let p = &r.responses[0].partition_responses[0];
+                assert_eq!(p.base_offset, 42);
+                assert_eq!(p.error_code, ErrorCode::None);
+                assert!(p.current_leader.is_some());
+                assert_eq!(p.current_leader.as_ref().unwrap().leader_id, 1);
+            }
+            _ => panic!("expected ProduceResponse"),
+        }
+    }
+
+    fn make_fetch_response_frame(
+        correlation_id: u32,
+        throttle_time_ms: u32,
+        topics: Vec<TopicResponse>,
+    ) -> Frame {
+        Frame {
+            size: 0,
+            header: RequestHeaderBuilder::default()
+                .api_key(ApiKey::Fetch)
+                .api_version(0)
+                .correlation_id(correlation_id)
+                .client_id(None)
+                .build()
+                .unwrap(),
+            body: FrameBody::FetchResponse(FetchResponse { throttle_time_ms, responses: topics }),
+        }
+    }
+
+    #[test]
+    fn fetch_response_empty_partitions_roundtrip() {
+        let frame = make_fetch_response_frame(10, 0, vec![]);
+        let decoded = parse_full_response(encode_response(frame)).unwrap();
+        assert_eq!(decoded.header.correlation_id, 10);
+        match decoded.body {
+            FrameBody::FetchResponse(r) => {
+                assert_eq!(r.throttle_time_ms, 0);
+                assert!(r.responses.is_empty());
+            }
+            _ => panic!("expected FetchResponse"),
+        }
+    }
+
+    #[test]
+    fn fetch_response_single_batch_roundtrip() {
+        let record = Record::new(0, b"key", b"value");
+        let encoded = record.encode();
+        let batch = RecordBatch {
+            base_offset: 0,
+            batch_length: 4 + encoded.len() as u32,
+            records_count: 1,
+            records: Bytes::from(encoded),
+        };
+        let frame = make_fetch_response_frame(
+            7,
+            5,
+            vec![TopicResponse {
+                topic: "orders".into(),
+                partitions: vec![PartitionResponse {
+                    partition_index: 0,
+                    error_code: crate::protocol::error_codes::ErrorCode::None,
+                    high_watermark: 3,
+                    log_start_offset: 0,
+                    records: vec![batch],
+                }],
+            }],
+        );
+        let decoded = parse_full_response(encode_response(frame)).unwrap();
+        assert_eq!(decoded.header.correlation_id, 7);
+        match decoded.body {
+            FrameBody::FetchResponse(r) => {
+                assert_eq!(r.throttle_time_ms, 5);
+                assert_eq!(r.responses.len(), 1);
+                assert_eq!(r.responses[0].topic, "orders");
+                let p = &r.responses[0].partitions[0];
+                assert_eq!(p.partition_index, 0);
+                assert_eq!(p.high_watermark, 3);
+                assert_eq!(p.records.len(), 1);
+                assert_eq!(p.records[0].base_offset, 0);
+                assert_eq!(p.records[0].records_count, 1);
+                let (rec, _) = Record::decode_raw(&p.records[0].records).unwrap();
+                assert_eq!(rec.key, b"key");
+                assert_eq!(rec.value, b"value");
+            }
+            _ => panic!("expected FetchResponse"),
+        }
+    }
+
+    #[test]
+    fn fetch_response_multiple_batches_roundtrip() {
+        let make_batch_for_fetch = |base_offset: u64, key: &[u8], val: &[u8]| {
+            let encoded = Record::new(0, key, val).encode();
+            RecordBatch {
+                base_offset,
+                batch_length: 4 + encoded.len() as u32,
+                records_count: 1,
+                records: Bytes::from(encoded),
+            }
+        };
+        let frame = make_fetch_response_frame(
+            3,
+            0,
+            vec![TopicResponse {
+                topic: "events".into(),
+                partitions: vec![PartitionResponse {
+                    partition_index: 0,
+                    error_code: crate::protocol::error_codes::ErrorCode::None,
+                    high_watermark: 2,
+                    log_start_offset: 0,
+                    records: vec![
+                        make_batch_for_fetch(0, b"k0", b"v0"),
+                        make_batch_for_fetch(1, b"k1", b"v1"),
+                    ],
+                }],
+            }],
+        );
+        let decoded = parse_full_response(encode_response(frame)).unwrap();
+        match decoded.body {
+            FrameBody::FetchResponse(r) => {
+                let p = &r.responses[0].partitions[0];
+                assert_eq!(p.records.len(), 2);
+                let (r0, _) = Record::decode_raw(&p.records[0].records).unwrap();
+                assert_eq!(r0.key, b"k0");
+                let (r1, _) = Record::decode_raw(&p.records[1].records).unwrap();
+                assert_eq!(r1.key, b"k1");
+            }
+            _ => panic!("expected FetchResponse"),
+        }
+    }
+
+    #[test]
+    fn fetch_response_error_partition_roundtrip() {
+        use crate::protocol::error_codes::ErrorCode;
+        let frame = make_fetch_response_frame(
+            1,
+            0,
+            vec![TopicResponse {
+                topic: "t".into(),
+                partitions: vec![PartitionResponse {
+                    partition_index: 5,
+                    error_code: ErrorCode::UnknownTopicOrPartition,
+                    high_watermark: 0,
+                    log_start_offset: 0,
+                    records: vec![],
+                }],
+            }],
+        );
+        let decoded = parse_full_response(encode_response(frame)).unwrap();
+        match decoded.body {
+            FrameBody::FetchResponse(r) => {
+                let p = &r.responses[0].partitions[0];
+                assert_eq!(p.partition_index, 5);
+                assert_eq!(p.error_code, ErrorCode::UnknownTopicOrPartition);
+                assert!(p.records.is_empty());
+            }
+            _ => panic!("expected FetchResponse"),
+        }
+    }
+
+    #[test]
+    fn fetch_response_multiple_topics_roundtrip() {
+        use crate::protocol::error_codes::ErrorCode;
+        let make_batch = |base_offset: u64| {
+            let encoded = Record::new(0, b"k", b"v").encode();
+            RecordBatch {
+                base_offset,
+                batch_length: 4 + encoded.len() as u32,
+                records_count: 1,
+                records: Bytes::from(encoded),
+            }
+        };
+        let frame = make_fetch_response_frame(
+            99,
+            10,
+            vec![
+                TopicResponse {
+                    topic: "orders".into(),
+                    partitions: vec![PartitionResponse {
+                        partition_index: 0,
+                        error_code: ErrorCode::None,
+                        high_watermark: 1,
+                        log_start_offset: 0,
+                        records: vec![make_batch(0)],
+                    }],
+                },
+                TopicResponse {
+                    topic: "events".into(),
+                    partitions: vec![PartitionResponse {
+                        partition_index: 2,
+                        error_code: ErrorCode::None,
+                        high_watermark: 5,
+                        log_start_offset: 0,
+                        records: vec![make_batch(3)],
+                    }],
+                },
+            ],
+        );
+        let decoded = parse_full_response(encode_response(frame)).unwrap();
+        match decoded.body {
+            FrameBody::FetchResponse(r) => {
+                assert_eq!(r.throttle_time_ms, 10);
+                assert_eq!(r.responses.len(), 2);
+                assert_eq!(r.responses[0].topic, "orders");
+                assert_eq!(r.responses[0].partitions[0].records[0].base_offset, 0);
+                assert_eq!(r.responses[1].topic, "events");
+                assert_eq!(r.responses[1].partitions[0].partition_index, 2);
+                assert_eq!(r.responses[1].partitions[0].high_watermark, 5);
+                assert_eq!(r.responses[1].partitions[0].records[0].base_offset, 3);
+            }
+            _ => panic!("expected FetchResponse"),
+        }
+    }
+
+    #[test]
+    fn produce_response_no_leader_roundtrip() {
+        use crate::protocol::{
+            Frame,
+            body::FrameBody,
+            header::{ApiKey, RequestHeaderBuilder},
+            produce::response::{
+                partition_response::ProducePartitionResponse,
+                produce_response::ProduceResponse,
+                topic_response::ProduceTopicResponse,
+            },
+        };
+        use crate::protocol::error_codes::ErrorCode;
+
+        let frame = Frame {
+            size: 0,
+            header: RequestHeaderBuilder::default()
+                .api_key(ApiKey::Produce)
+                .api_version(0)
+                .correlation_id(1)
+                .client_id(None)
+                .build()
+                .unwrap(),
+            body: FrameBody::ProduceResponse(ProduceResponse {
+                throttle_time_ms: 0,
+                responses: vec![ProduceTopicResponse {
+                    topic: "t".into(),
+                    partition_responses: vec![ProducePartitionResponse::error(
+                        3,
+                        ErrorCode::UnknownTopicOrPartition,
+                    )],
+                }],
+            }),
+        };
+
+        let decoded = parse_full_response(encode_response(frame)).unwrap();
+        match decoded.body {
+            FrameBody::ProduceResponse(r) => {
+                let p = &r.responses[0].partition_responses[0];
+                assert_eq!(p.error_code, ErrorCode::UnknownTopicOrPartition);
+                assert!(p.current_leader.is_none());
+            }
+            _ => panic!("expected ProduceResponse"),
         }
     }
 }

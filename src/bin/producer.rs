@@ -24,7 +24,6 @@ use tokio::{
     net::TcpStream,
 };
 
-
 #[derive(Parser, Debug)]
 #[command(version)]
 struct Args {
@@ -47,8 +46,6 @@ struct Args {
 async fn main() {
     let args = Args::parse();
 
-    // 0. Establish connection
-
     let addr = args.bootstrap_servers.first().unwrap();
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
@@ -58,17 +55,14 @@ async fn main() {
     };
     let metadata_request = Frame::new(ApiKey::Metadata, FrameBody::Metadata(body));
 
-    // 1. Call metadata against bootstrap server
     stream.write_all(&metadata_request.encode()).await.unwrap();
     let response_size = stream.read_u32().await.unwrap();
-    // let mut buf = Vec::with_capacity(response_size as usize);
-    let mut buf = BytesMut::with_capacity(response_size as usize);
+    let mut buf = BytesMut::zeroed(response_size as usize);
 
     stream.read_exact(&mut buf).await.unwrap();
 
-    let metadata_response = Frame::decode(&buf.freeze(), response_size).unwrap();
+    let metadata_response = Frame::decode_response(&buf.freeze(), response_size).unwrap();
 
-    // 2. Perform hash or pick random partition
     let metadata = if let FrameBody::MetadataResponse(metadata) = metadata_response.body {
         metadata
     } else {
@@ -90,17 +84,15 @@ async fn main() {
 
     let partition = &topic_metadata.partitions[index];
 
-    // 3. Lookup leader replica for partition
-
     let record = Record::new(
         0,
-        args.key.ok_or("".to_string()).unwrap().as_bytes(),
+        args.key.as_deref().unwrap_or("").as_bytes(),
         args.value.as_bytes(),
     )
     .encode();
     let record_batch = RecordBatch {
         base_offset: 0,
-        batch_length: record.len() as u32,
+        batch_length: 4 + record.len() as u32,
         records_count: 1,
         records: record.into(),
     };
@@ -120,15 +112,13 @@ async fn main() {
 
     let produce_request = Frame::new(ApiKey::Produce, FrameBody::Produce(body));
 
-    // 4. Send `ProduceRequest`
     stream.write_all(&produce_request.encode()).await.unwrap();
 
-    // 5. Await for response
     let response_size = stream.read_u32().await.unwrap();
-    let mut buf = BytesMut::with_capacity(response_size as usize);
+    let mut buf = BytesMut::zeroed(response_size as usize);
 
     stream.read_exact(&mut buf).await.unwrap();
 
-    let produce_response = Frame::decode(&buf.freeze(), response_size).unwrap();
+    let produce_response = Frame::decode_response(&buf.freeze(), response_size).unwrap();
     println!("Successfully wrote: {produce_response:#?} into broker");
 }
