@@ -67,7 +67,7 @@ impl Broker {
                 PartitionHandle::spawn(
                     0,
                     PartitionConfigBuilder::default()
-                        .base_dir("./data/test-0".to_string())
+                        .base_dir("./data".to_string())
                         .partition_id(0)
                         .topic_id("test".to_string())
                         .channel_size(100)
@@ -88,7 +88,7 @@ impl Broker {
                         channel_size: 100,
                         replicas: vec![],
                         broker_id: 0,
-                        base_dir: "./data/test-0".to_string(),
+                        base_dir: "./data".to_string(),
                         partition_id: 0,
                         topic_id: "test".to_string(),
                     }],
