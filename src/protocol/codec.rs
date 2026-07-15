@@ -17,7 +17,9 @@ use crate::{
         },
         header::{ApiKey, RequestHeader},
         metadata::{
-            BrokerMetadata, MetadataRequest, MetadataResponse, PartitionMetadata, TopicMetadata,
+            BrokerMetadata, CreateTopicRequest, CreateTopicResponse, MetadataRequest,
+            MetadataResponse, PartitionMetadata, TopicMetadata, TopicPartitonAssignment,
+            TopicRequest, TopicResponse as CreateTopicTopicResponse,
         },
         produce::{
             request::{
@@ -78,6 +80,7 @@ impl RequestDecoder {
             ApiKey::Produce => self.parse_produce(buf)?,
             ApiKey::Fetch => self.parse_fetch(buf)?,
             ApiKey::Metadata => self.parse_metadata(buf)?,
+            ApiKey::CreateTopics => self.parse_create_topics(buf)?,
         };
 
         Ok(Frame { size, header, body })
@@ -183,6 +186,28 @@ impl RequestDecoder {
             topics,
         }))
     }
+
+    fn parse_create_topics(&self, buf: &mut Bytes) -> Result<FrameBody, ParseError> {
+        let topics_count = buf.get_u16();
+        let mut topics = Vec::new();
+        for _ in 0..topics_count {
+            let name_len = buf.get_u16();
+            let name = String::from_utf8_lossy(&buf.split_to(name_len as usize)).to_string();
+            let num_partitions = buf.get_i32();
+            let replication_factor = buf.get_u16();
+            let assignments_count = buf.get_u16();
+            let mut assignments = Vec::new();
+            for _ in 0..assignments_count {
+                let partition_index = buf.get_i32();
+                let broker_ids = buf.get_i32();
+                assignments.push(TopicPartitonAssignment { partition_index, broker_ids });
+            }
+            topics.push(TopicRequest { name, num_partitions, replication_factor, assignments });
+        }
+        let timeout_ms = buf.get_u32();
+        let validate_only = buf.get_u8() != 0;
+        Ok(FrameBody::Topic(CreateTopicRequest { topics, timeout_ms, validate_only }))
+    }
 }
 
 #[derive(Debug)]
@@ -217,6 +242,7 @@ impl ResponseDecoder {
             ApiKey::Metadata => self.parse_metadata_response(buf)?,
             ApiKey::Produce => self.parse_produce_response(buf)?,
             ApiKey::Fetch => self.parse_fetch_response(buf)?,
+            ApiKey::CreateTopics => self.parse_create_topics_response(buf)?,
         };
 
         Ok(Frame { size, header, body })
@@ -360,6 +386,23 @@ impl ResponseDecoder {
             responses.push(TopicResponse { topic, partitions });
         }
         Ok(FrameBody::FetchResponse(FetchResponse { throttle_time_ms, responses }))
+    }
+
+    fn parse_create_topics_response(&self, buf: &mut Bytes) -> Result<FrameBody, ParseError> {
+        let throttle_time_ms = buf.get_u32();
+        let topics_count = buf.get_u16();
+        let mut topics = Vec::new();
+        for _ in 0..topics_count {
+            let name_len = buf.get_u16();
+            let name = String::from_utf8_lossy(&buf.split_to(name_len as usize)).to_string();
+            let error_code = ErrorCode::try_from(buf.get_i16()).unwrap_or(ErrorCode::UnknownServerError);
+            let error_message_len = buf.get_u16();
+            let error_message = String::from_utf8_lossy(&buf.split_to(error_message_len as usize)).to_string();
+            let num_partitions = buf.get_i32();
+            let replication_factor = buf.get_u16();
+            topics.push(CreateTopicTopicResponse { name, error_code, error_message, num_partitions, replication_factor });
+        }
+        Ok(FrameBody::TopicResponse(CreateTopicResponse { throttle_time_ms, topics }))
     }
 }
 

@@ -18,6 +18,11 @@ pub struct PartitionState {
     pub segments: Arc<Vec<Arc<SegmentView>>>,
     pub log_end_offset: u64,
     pub high_watermark: u64,
+
+    // FIXME: actually replica metadata, as well as ISR and leadership is owned by the metadata log.
+    // The state needs to have access, but it's not clear to me yet how that data finds it's way here.
+    // Perhaps there can be a message on the PartitionActor that updates the replica data.
+    // `ReplicaMetadata` should be renamed to `ReplicaState`, because ownership of metadata is somewhere else.
     pub replicas: Arc<Vec<ReplicaMetadata>>,
 }
 
@@ -95,12 +100,12 @@ impl PartitionState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::Bytes;
     use crate::protocol::fetch::request::fetch_partition::FetchPartition;
     use crate::segment::config::SegmentConfigBuilder;
     use crate::segment::log_segment::LogSegment;
     use crate::storage::record::Record;
     use crate::storage::record_batch::RecordBatch;
+    use bytes::Bytes;
 
     fn make_seg(dir: &tempdir::TempDir, base_offset: u64) -> LogSegment {
         let cfg = SegmentConfigBuilder::default()
@@ -147,7 +152,9 @@ mod tests {
         PartitionState::with_segments(segs, hw)
     }
 
-    fn first_key(resp: &crate::protocol::fetch::response::partition_response::PartitionResponse) -> Vec<u8> {
+    fn first_key(
+        resp: &crate::protocol::fetch::response::partition_response::PartitionResponse,
+    ) -> Vec<u8> {
         let (rec, _) = Record::decode_raw(&resp.records[0].records).unwrap();
         rec.key
     }
@@ -211,7 +218,8 @@ mod tests {
 
         // seg1: single record at offset 10
         let mut seg1 = make_seg(&dir1, 10);
-        seg1.append_batch(&single_record_batch(10, b"seg-10", b"val")).unwrap();
+        seg1.append_batch(&single_record_batch(10, b"seg-10", b"val"))
+            .unwrap();
         let view1 = seg1.publish();
 
         let state = PartitionState::with_segments(vec![view0, view1], 11);
@@ -225,7 +233,9 @@ mod tests {
 
     #[test]
     fn fetch_three_segments_selects_first() {
-        let dirs: Vec<_> = (0..3).map(|_| tempdir::TempDir::new("st").unwrap()).collect();
+        let dirs: Vec<_> = (0..3)
+            .map(|_| tempdir::TempDir::new("st").unwrap())
+            .collect();
         let state = build_state(&[(&dirs[0], 0), (&dirs[1], 100), (&dirs[2], 200)]);
 
         let resp = state.fetch(0, fetch_req(0));
@@ -234,7 +244,9 @@ mod tests {
 
     #[test]
     fn fetch_three_segments_selects_middle() {
-        let dirs: Vec<_> = (0..3).map(|_| tempdir::TempDir::new("st").unwrap()).collect();
+        let dirs: Vec<_> = (0..3)
+            .map(|_| tempdir::TempDir::new("st").unwrap())
+            .collect();
         let state = build_state(&[(&dirs[0], 0), (&dirs[1], 100), (&dirs[2], 200)]);
 
         let resp = state.fetch(0, fetch_req(100));
@@ -243,7 +255,9 @@ mod tests {
 
     #[test]
     fn fetch_three_segments_selects_last() {
-        let dirs: Vec<_> = (0..3).map(|_| tempdir::TempDir::new("st").unwrap()).collect();
+        let dirs: Vec<_> = (0..3)
+            .map(|_| tempdir::TempDir::new("st").unwrap())
+            .collect();
         let state = build_state(&[(&dirs[0], 0), (&dirs[1], 100), (&dirs[2], 200)]);
 
         let resp = state.fetch(0, fetch_req(200));
@@ -252,11 +266,14 @@ mod tests {
 
     #[test]
     fn fetch_offset_between_second_and_third_selects_second() {
-        let dirs: Vec<_> = (0..3).map(|_| tempdir::TempDir::new("st").unwrap()).collect();
+        let dirs: Vec<_> = (0..3)
+            .map(|_| tempdir::TempDir::new("st").unwrap())
+            .collect();
 
         // seg0: offset 0
         let mut seg0 = make_seg(&dirs[0], 0);
-        seg0.append_batch(&single_record_batch(0, b"seg-0", b"val")).unwrap();
+        seg0.append_batch(&single_record_batch(0, b"seg-0", b"val"))
+            .unwrap();
         let view0 = seg0.publish();
 
         // seg1: multi-record batch covering offsets 100..199 — offset 150 lives here
@@ -276,7 +293,8 @@ mod tests {
 
         // seg2: offset 200
         let mut seg2 = make_seg(&dirs[2], 200);
-        seg2.append_batch(&single_record_batch(200, b"seg-200", b"val")).unwrap();
+        seg2.append_batch(&single_record_batch(200, b"seg-200", b"val"))
+            .unwrap();
         let view2 = seg2.publish();
 
         let state = PartitionState::with_segments(vec![view0, view1, view2], 201);

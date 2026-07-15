@@ -26,7 +26,9 @@ pub enum ApiKey {
     Produce,
     Fetch,
     Metadata,
-    // etc. add up to 40 (CreatePartitions)
+    // There's also `CreatePartitions=37`, but I'll include that info inside of this for now.
+    CreateTopics,
+    // etc. add up to 40
 }
 
 #[derive(Debug)]
@@ -40,6 +42,7 @@ impl TryFrom<u32> for ApiKey {
             0 => Ok(ApiKey::Produce),
             1 => Ok(ApiKey::Fetch),
             3 => Ok(ApiKey::Metadata),
+            19 => Ok(ApiKey::CreateTopics),
             _ => Err(InvalidEnumValue(value)),
         }
     }
@@ -51,6 +54,7 @@ impl From<ApiKey> for u32 {
             ApiKey::Produce => 0,
             ApiKey::Fetch => 1,
             ApiKey::Metadata => 3,
+            ApiKey::CreateTopics => 19,
         }
     }
 }

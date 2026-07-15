@@ -24,6 +24,11 @@ use crate::{
     topic::TopicPartition,
 };
 
+pub mod actor;
+pub mod command;
+pub mod config;
+pub mod state;
+
 #[derive(Builder, Clone)]
 pub struct BrokerConfig {
     pub node_id: i32,
@@ -57,7 +62,7 @@ pub struct Broker {
 impl Broker {
     // TODO: this is all hardcoded for now. Config will need to be generated from metadata log instead.
     // That'll be only possible once we have the quorum controller vs normal broker.
-    pub fn new() -> Self {
+    pub fn new(path: String) -> Self {
         Self {
             partitions: HashMap::from([(
                 TopicPartition {
@@ -67,11 +72,10 @@ impl Broker {
                 PartitionHandle::spawn(
                     0,
                     PartitionConfigBuilder::default()
-                        .base_dir("./data".to_string())
+                        .base_dir(path.clone())
                         .partition_id(0)
                         .topic_id("test".to_string())
                         .channel_size(100)
-                        .segment_bytes(100)
                         .broker_id(0)
                         .build()
                         .unwrap(),
@@ -83,15 +87,16 @@ impl Broker {
                 host: "localhost".to_string(),
                 port: 9092,
                 topics: vec![TopicConfig {
-                    partitions: vec![PartitionConfig {
-                        segment_bytes: 100,
-                        channel_size: 100,
-                        replicas: vec![],
-                        broker_id: 0,
-                        base_dir: "./data".to_string(),
-                        partition_id: 0,
-                        topic_id: "test".to_string(),
-                    }],
+                    partitions: vec![
+                        PartitionConfigBuilder::default()
+                            .base_dir(path.clone())
+                            .partition_id(0)
+                            .topic_id("test".to_string())
+                            .channel_size(100)
+                            .broker_id(0)
+                            .build()
+                            .unwrap(),
+                    ],
                 }],
             },
         }

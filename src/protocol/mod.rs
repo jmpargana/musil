@@ -152,6 +152,35 @@ impl Frame {
                 }
                 buf.put_u8(req.allow_auto_topic_creation as u8);
             }
+            FrameBody::Topic(req) => {
+                buf.put_u16(req.topics.len() as u16);
+                for t in &req.topics {
+                    buf.put_u16(t.name.len() as u16);
+                    buf.put_slice(t.name.as_bytes());
+                    buf.put_i32(t.num_partitions);
+                    buf.put_u16(t.replication_factor);
+                    buf.put_u16(t.assignments.len() as u16);
+                    for a in &t.assignments {
+                        buf.put_i32(a.partition_index);
+                        buf.put_i32(a.broker_ids);
+                    }
+                }
+                buf.put_u32(req.timeout_ms);
+                buf.put_u8(req.validate_only as u8);
+            }
+            FrameBody::TopicResponse(resp) => {
+                buf.put_u32(resp.throttle_time_ms);
+                buf.put_u16(resp.topics.len() as u16);
+                for t in &resp.topics {
+                    buf.put_u16(t.name.len() as u16);
+                    buf.put_slice(t.name.as_bytes());
+                    buf.put_i16(i16::from(t.error_code));
+                    buf.put_u16(t.error_message.len() as u16);
+                    buf.put_slice(t.error_message.as_bytes());
+                    buf.put_i32(t.num_partitions);
+                    buf.put_u16(t.replication_factor);
+                }
+            }
             FrameBody::MetadataResponse(res) => {
                 buf.put_u32(res.throttle_time_ms);
                 buf.put_u32(res.brokers.len() as u32);
@@ -938,6 +967,225 @@ mod tests {
             ],
             1,
             ErrorCode::None,
+        );
+        let encoded = frame.encode();
+        let declared_size = u32::from_be_bytes(encoded[0..4].try_into().unwrap());
+        assert_eq!(declared_size as usize, encoded.len() - 4);
+    }
+
+    // --- create topics roundtrips ---
+
+    fn create_topics_frame(
+        topics: Vec<crate::protocol::metadata::TopicRequest>,
+        timeout_ms: u32,
+        validate_only: bool,
+    ) -> Frame {
+        use crate::protocol::metadata::CreateTopicRequest;
+        Frame {
+            size: 0,
+            header: make_header(ApiKey::CreateTopics, 1, None),
+            body: FrameBody::Topic(CreateTopicRequest { topics, timeout_ms, validate_only }),
+        }
+    }
+
+    fn create_topics_response_frame(
+        throttle_time_ms: u32,
+        topics: Vec<crate::protocol::metadata::TopicResponse>,
+    ) -> Frame {
+        use crate::protocol::metadata::CreateTopicResponse;
+        Frame {
+            size: 0,
+            header: make_header(ApiKey::CreateTopics, 1, None),
+            body: FrameBody::TopicResponse(CreateTopicResponse { throttle_time_ms, topics }),
+        }
+    }
+
+    fn roundtrip_response(frame: Frame) -> Frame {
+        let encoded = frame.encode();
+        let size = u32::from_be_bytes(encoded[0..4].try_into().unwrap());
+        let body = encoded.slice(4..);
+        Frame::decode_response(&body, size).unwrap()
+    }
+
+    #[test]
+    fn create_topics_encode_decode_single_topic() {
+        use crate::protocol::metadata::TopicRequest;
+        let frame = create_topics_frame(
+            vec![TopicRequest {
+                name: "orders".into(),
+                num_partitions: 3,
+                replication_factor: 2,
+                assignments: vec![],
+            }],
+            5000,
+            false,
+        );
+        let decoded = roundtrip(frame);
+        match decoded.body {
+            FrameBody::Topic(r) => {
+                assert_eq!(r.topics.len(), 1);
+                assert_eq!(r.topics[0].name, "orders");
+                assert_eq!(r.topics[0].num_partitions, 3);
+                assert_eq!(r.topics[0].replication_factor, 2);
+                assert_eq!(r.timeout_ms, 5000);
+                assert!(!r.validate_only);
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn create_topics_encode_decode_validate_only() {
+        use crate::protocol::metadata::TopicRequest;
+        let frame = create_topics_frame(
+            vec![TopicRequest {
+                name: "t".into(),
+                num_partitions: 1,
+                replication_factor: 1,
+                assignments: vec![],
+            }],
+            1000,
+            true,
+        );
+        let decoded = roundtrip(frame);
+        match decoded.body {
+            FrameBody::Topic(r) => assert!(r.validate_only),
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn create_topics_encode_decode_with_assignments() {
+        use crate::protocol::metadata::{TopicPartitonAssignment, TopicRequest};
+        let frame = create_topics_frame(
+            vec![TopicRequest {
+                name: "events".into(),
+                num_partitions: -1,
+                replication_factor: 0,
+                assignments: vec![
+                    TopicPartitonAssignment { partition_index: 0, broker_ids: 1 },
+                    TopicPartitonAssignment { partition_index: 1, broker_ids: 2 },
+                ],
+            }],
+            3000,
+            false,
+        );
+        let decoded = roundtrip(frame);
+        match decoded.body {
+            FrameBody::Topic(r) => {
+                let a = &r.topics[0].assignments;
+                assert_eq!(a.len(), 2);
+                assert_eq!(a[0].partition_index, 0);
+                assert_eq!(a[0].broker_ids, 1);
+                assert_eq!(a[1].partition_index, 1);
+                assert_eq!(a[1].broker_ids, 2);
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn create_topics_encode_decode_multiple_topics() {
+        use crate::protocol::metadata::TopicRequest;
+        let frame = create_topics_frame(
+            vec![
+                TopicRequest { name: "a".into(), num_partitions: 1, replication_factor: 1, assignments: vec![] },
+                TopicRequest { name: "b".into(), num_partitions: 2, replication_factor: 3, assignments: vec![] },
+            ],
+            0,
+            false,
+        );
+        let decoded = roundtrip(frame);
+        match decoded.body {
+            FrameBody::Topic(r) => {
+                assert_eq!(r.topics.len(), 2);
+                assert_eq!(r.topics[0].name, "a");
+                assert_eq!(r.topics[1].name, "b");
+                assert_eq!(r.topics[1].replication_factor, 3);
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn create_topics_encode_size_field_matches_payload() {
+        use crate::protocol::metadata::TopicRequest;
+        let frame = create_topics_frame(
+            vec![TopicRequest { name: "t".into(), num_partitions: 1, replication_factor: 1, assignments: vec![] }],
+            1000,
+            false,
+        );
+        let encoded = frame.encode();
+        let declared_size = u32::from_be_bytes(encoded[0..4].try_into().unwrap());
+        assert_eq!(declared_size as usize, encoded.len() - 4);
+    }
+
+    #[test]
+    fn create_topics_response_encode_decode_single_topic() {
+        use crate::protocol::error_codes::ErrorCode;
+        use crate::protocol::metadata::TopicResponse;
+        let frame = create_topics_response_frame(
+            0,
+            vec![TopicResponse {
+                name: "orders".into(),
+                error_code: ErrorCode::None,
+                error_message: String::new(),
+                num_partitions: 3,
+                replication_factor: 2,
+            }],
+        );
+        let decoded = roundtrip_response(frame);
+        match decoded.body {
+            FrameBody::TopicResponse(r) => {
+                assert_eq!(r.topics.len(), 1);
+                assert_eq!(r.topics[0].name, "orders");
+                assert_eq!(r.topics[0].num_partitions, 3);
+                assert_eq!(r.topics[0].replication_factor, 2);
+                assert_eq!(r.topics[0].error_code, ErrorCode::None);
+                assert_eq!(r.topics[0].error_message, "");
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn create_topics_response_encode_decode_with_error() {
+        use crate::protocol::error_codes::ErrorCode;
+        use crate::protocol::metadata::TopicResponse;
+        let frame = create_topics_response_frame(
+            100,
+            vec![TopicResponse {
+                name: "dup".into(),
+                error_code: ErrorCode::TopicAlreadyExists,
+                error_message: "topic exists".into(),
+                num_partitions: 0,
+                replication_factor: 0,
+            }],
+        );
+        let decoded = roundtrip_response(frame);
+        match decoded.body {
+            FrameBody::TopicResponse(r) => {
+                assert_eq!(r.throttle_time_ms, 100);
+                assert_eq!(r.topics[0].error_code, ErrorCode::TopicAlreadyExists);
+                assert_eq!(r.topics[0].error_message, "topic exists");
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn create_topics_response_encode_size_field_matches_payload() {
+        use crate::protocol::error_codes::ErrorCode;
+        use crate::protocol::metadata::TopicResponse;
+        let frame = create_topics_response_frame(
+            0,
+            vec![TopicResponse {
+                name: "t".into(),
+                error_code: ErrorCode::None,
+                error_message: String::new(),
+                num_partitions: 1,
+                replication_factor: 1,
+            }],
         );
         let encoded = frame.encode();
         let declared_size = u32::from_be_bytes(encoded[0..4].try_into().unwrap());
