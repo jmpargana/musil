@@ -14,7 +14,8 @@ derive_builder = "0.20.2"
 memmap = "0.7.0"
 murmur2 = "0.1.0"
 rand = "0.10.2"
-serde = "1.0.228"
+config = "0.14"
+serde = { version = "1.0.228", features = ["derive"] }
 tokio = { version = "1.52.3", features = ["full"] }
 tracing = "0.1.44"
 

@@ -10,6 +10,7 @@ use crate::{
     },
     replica::ReplicaMetadata,
     segment::metadata::SegmentView,
+    storage::record_batch::RecordBatch,
 };
 
 #[derive(Clone)]
@@ -53,6 +54,23 @@ impl PartitionState {
             error_code: ErrorCode::None,
             high_watermark: self.high_watermark,
             log_start_offset: self.log_end_offset,
+            records,
+        }
+    }
+
+    pub fn fetch_all(&self) -> PartitionResponse {
+        let records = self
+            .segments
+            .iter()
+            .map(|seg| seg.fetch_all())
+            .flatten()
+            .collect::<Vec<RecordBatch>>();
+
+        PartitionResponse {
+            partition_index: 0,
+            error_code: ErrorCode::None,
+            high_watermark: 0, // TODO: maybe this needs to be an actual value later
+            log_start_offset: 0,
             records,
         }
     }

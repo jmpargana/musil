@@ -69,6 +69,7 @@ impl From<PartitionConfig> for PartitionActorConfig {
     }
 }
 
+// FIXME: move this somewhere logical.
 // Scan a log segment file from offset 0 and sum records_count across all batches.
 // Returns the total number of records, which when added to the segment's base_offset gives leo.
 fn scan_records_count(base_dir: &str, base_offset: u64, size: usize) -> io::Result<u64> {

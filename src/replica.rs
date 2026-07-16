@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ReplicaMetadata {
     // TODO: maybe this field get's removed?
     pub broker_id: String,

@@ -1,8 +1,21 @@
-use std::{collections::HashMap, io, sync::Arc, time::Instant};
+use std::{
+    collections::HashMap,
+    io,
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 
+use arc_swap::ArcSwap;
 use derive_builder::Builder;
+use tokio::{
+    sync::mpsc::{self, channel},
+    task::JoinHandle,
+};
 
 use crate::{
+    broker::{
+        actor::MetadataActor, command::MetadataCommand, config::BrokerConfig, state::MetadataImage,
+    },
     partition::{
         config::{PartitionConfig, PartitionConfigBuilder},
         handle::PartitionHandle,
@@ -15,6 +28,7 @@ use crate::{
             fetch_response::FetchResponse, partition_response::PartitionResponse,
             topic_response::TopicResponse,
         },
+        header::ApiKey,
         metadata::{BrokerMetadata, MetadataResponse, PartitionMetadata, TopicMetadata},
         produce::response::{
             partition_response::ProducePartitionResponse, produce_response::ProduceResponse,
@@ -27,101 +41,47 @@ use crate::{
 pub mod actor;
 pub mod command;
 pub mod config;
+pub mod metadata_record;
 pub mod state;
 
-#[derive(Builder, Clone)]
-pub struct BrokerConfig {
-    pub node_id: i32,
-    pub host: String,
-    pub port: i32,
-    pub topics: Vec<TopicConfig>,
-}
-
-impl Into<BrokerMetadata> for &BrokerConfig {
-    fn into(self) -> BrokerMetadata {
-        BrokerMetadata {
-            node_id: self.node_id,
-            host: self.host.to_string(),
-            port: self.port,
-        }
-    }
-}
-
-#[derive(Builder, Clone)]
-pub struct TopicConfig {
-    pub partitions: Vec<PartitionConfig>,
-}
-
 pub struct Broker {
-    // TODO: needs to be behind Arc in case topics and partitions are dynamic, otherwise broker restart is needed
-    partitions: HashMap<TopicPartition, Arc<PartitionHandle>>,
+    // Immutable object. Can only be updated by actor which is spawn at beginning and swaps RCU-style with new value.
+    pub state: Arc<ArcSwap<MetadataImage>>,
     config: BrokerConfig,
     brokers: Vec<BrokerConfig>,
+    tx: mpsc::Sender<MetadataCommand>,
+    // TODO: add shutdown signal
+    join: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Broker {
-    // TODO: this is all hardcoded for now. Config will need to be generated from metadata log instead.
-    // That'll be only possible once we have the quorum controller vs normal broker.
-    pub fn new(path: String) -> Self {
-        Self {
-            partitions: HashMap::from([(
-                TopicPartition {
-                    topic_id: "test".to_string(),
-                    partition_id: 0,
-                },
-                PartitionHandle::spawn(
-                    0,
-                    PartitionConfigBuilder::default()
-                        .base_dir(path.clone())
-                        .partition_id(0)
-                        .topic_id("test".to_string())
-                        .channel_size(100)
-                        .broker_id(0)
-                        .build()
-                        .unwrap(),
-                ),
-            )]),
-            brokers: vec![],
-            config: BrokerConfig {
-                node_id: 1,
-                host: "localhost".to_string(),
-                port: 9092,
-                topics: vec![TopicConfig {
-                    partitions: vec![
-                        PartitionConfigBuilder::default()
-                            .base_dir(path.clone())
-                            .partition_id(0)
-                            .topic_id("test".to_string())
-                            .channel_size(100)
-                            .broker_id(0)
-                            .build()
-                            .unwrap(),
-                    ],
-                }],
-            },
-        }
-    }
+    // loaded from config at startup
+    pub fn new(path: String, config: BrokerConfig, brokers: Vec<BrokerConfig>) -> Self {
+        // TODO: extract ch size to builder.
+        let (tx, rx) = channel(100);
 
-    pub fn with_partitions(partitions: HashMap<TopicPartition, Arc<PartitionHandle>>) -> Self {
+        let mut actor = MetadataActor::new(rx, path);
+        let state = actor.snapshot();
+        let join = tokio::spawn(async move {
+            actor.run().await;
+        });
+
         Self {
-            partitions,
-            brokers: vec![],
-            config: BrokerConfig {
-                node_id: 0,
-                host: "localhost".to_string(),
-                port: 9092,
-                topics: vec![],
-            },
+            state,
+            config,
+            brokers,
+            tx,
+            join: Mutex::new(Some(join)),
         }
     }
 
     pub fn update(&mut self) {}
 
-    pub fn partition(&self, topic: &str, partition: u16) -> Option<&Arc<PartitionHandle>> {
-        self.partitions.get(&TopicPartition {
+    pub fn partition(&self, topic: &str, partition: u16) -> Option<Arc<PartitionHandle>> {
+        self.state.load_full().partitions.get(&TopicPartition {
             topic_id: topic.to_owned(),
             partition_id: partition,
-        })
+        }).cloned()
     }
 
     pub async fn handle(&self, req: Frame) -> io::Result<Frame> {
@@ -129,6 +89,7 @@ impl Broker {
             FrameBody::Fetch(_) => self.handle_fetch(req).await,
             FrameBody::Produce(_) => self.handle_produce(req).await,
             FrameBody::Metadata(_) => self.handle_metadata(req).await,
+            FrameBody::Topic(_) => self.handle_create_topics(req).await,
             _ => Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "unsupported frame type",
@@ -218,10 +179,11 @@ impl Broker {
         };
         let now = Instant::now();
 
-        let mut topics: HashMap<&String, Vec<PartitionMetadata>> = HashMap::new();
+        let mut topics: HashMap<String, Vec<PartitionMetadata>> = HashMap::new();
 
         // I can simply ignore all topics, instead just load whatever is available.
-        for (topic_partition, handle) in &self.partitions {
+        let metadata = self.state.load_full();
+        for (topic_partition, handle) in &metadata.partitions {
             let state = handle.state.load_full();
 
             let mut isr = 0;
@@ -245,7 +207,7 @@ impl Broker {
             };
 
             topics
-                .entry(&topic_partition.topic_id)
+                .entry(topic_partition.topic_id.clone())
                 .or_default()
                 .push(pm);
         }
@@ -255,7 +217,7 @@ impl Broker {
             .map(|(k, v)| TopicMetadata {
                 partitions: v,
                 error_code: ErrorCode::None,
-                name: k.to_string(),
+                name: k,
             })
             .collect();
 
@@ -274,6 +236,31 @@ impl Broker {
             size,
             header,
             body: FrameBody::MetadataResponse(res),
+        })
+    }
+
+    async fn handle_create_topics(&self, req: Frame) -> io::Result<Frame> {
+        let FrameBody::Topic(body) = req.body else {
+            unreachable!()
+        };
+
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+        self.tx
+            .send(MetadataCommand::CreateTopic { req: body, done: done_tx })
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, e.to_string()))?;
+
+        let res = done_rx
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, e.to_string()))?;
+
+        let header = req.header.clone();
+        let size = header.get_size() + res.get_size();
+
+        Ok(Frame {
+            size,
+            header,
+            body: FrameBody::TopicResponse(res),
         })
     }
 }

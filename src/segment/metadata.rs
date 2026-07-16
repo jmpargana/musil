@@ -40,6 +40,20 @@ impl SegmentView {
         }
     }
 
+    pub fn fetch_all(&self) -> Vec<RecordBatch> {
+        let mut buf = vec![0u8; self.size];
+        self.log.read_at(&mut buf, 0).unwrap();
+
+        let mut batches = Vec::new();
+        let mut pos = 0u64;
+        while pos + 12 <= self.size as u64 {
+            let batch = RecordBatch::decode(&buf, pos);
+            pos += 12 + batch.batch_length as u64;
+            batches.push(batch);
+        }
+        batches
+    }
+
     // TODO: record doesn't need to be fully deseralized. Neither does record batch (if full).
     // Even if copying the byte array to a `bytes::Bytes`, copying data to user-space is unnecessary.
     // Instead I should just pass FD pointers around so `connection` calls `sendfile`.
@@ -69,7 +83,8 @@ impl SegmentView {
         let mut batches = vec![RecordBatch {
             base_offset: req.fetch_offset,
             batch_length: actual_batch_length,
-            records_count: batch.records_count
+            records_count: batch
+                .records_count
                 .saturating_sub((req.fetch_offset as u32).saturating_sub(batch.base_offset as u32)),
             // TODO: start from starting_pos
             records: batch.records,
@@ -213,11 +228,11 @@ impl<'a> Iterator for RecordIter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::Bytes;
     use crate::segment::config::SegmentConfigBuilder;
     use crate::segment::log_segment::LogSegment;
     use crate::storage::record::Record;
     use crate::storage::record_batch::RecordBatch;
+    use bytes::Bytes;
 
     fn make_seg(dir: &tempdir::TempDir, base_offset: u64) -> LogSegment {
         let cfg = SegmentConfigBuilder::default()

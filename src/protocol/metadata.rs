@@ -1,3 +1,5 @@
+use serde::Deserialize;
+
 use crate::protocol::error_codes::ErrorCode;
 
 #[derive(Debug)]
@@ -77,10 +79,12 @@ impl PartitionMetadata {
 }
 
 // TODO: refactor these records somewhere else
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 pub struct CreateTopicRequest {
     pub topics: Vec<TopicRequest>,
+    #[serde(default)]
     pub timeout_ms: u32,
+    #[serde(default)]
     pub validate_only: bool,
 }
 
@@ -91,11 +95,13 @@ impl CreateTopicRequest {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 pub struct TopicRequest {
     pub name: String,
     pub num_partitions: i32,
+    #[serde(default)]
     pub replication_factor: u16,
+    #[serde(default)]
     pub assignments: Vec<TopicPartitonAssignment>,
 }
 
@@ -106,7 +112,7 @@ impl TopicRequest {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 pub struct TopicPartitonAssignment {
     pub partition_index: i32,
     pub broker_ids: i32,

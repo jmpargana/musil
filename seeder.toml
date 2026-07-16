@@ -1,0 +1,5 @@
+[[topics]]
+name = "first_topic"
+num_partitions = 2
+replication_factor = 0
+assignments = []
