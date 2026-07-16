@@ -28,7 +28,7 @@ use tokio::{
 #[command(version)]
 struct Args {
     // TODO: directly parse comma-seperated values including host+port config.
-    #[arg(short, long, value_delimiter = ',', num_args = 1..)]
+    #[arg(short, long, value_delimiter = ',', num_args = 1.., default_value = "127.0.0.1:9092")]
     bootstrap_servers: Vec<String>,
 
     #[arg(short, long)]

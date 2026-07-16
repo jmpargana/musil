@@ -15,7 +15,11 @@ impl SocketServer {
     }
 
     pub async fn listen(&self) {
-        self.listen_on("0.0.0.0:8088").await;
+        let addr = format!(
+            "{}:{}",
+            self.broker.config.host, self.broker.config.port
+        );
+        self.listen_on(&addr).await;
     }
 
     pub async fn listen_on(&self, addr: &str) {

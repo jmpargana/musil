@@ -47,7 +47,7 @@ pub mod state;
 pub struct Broker {
     // Immutable object. Can only be updated by actor which is spawn at beginning and swaps RCU-style with new value.
     pub state: Arc<ArcSwap<MetadataImage>>,
-    config: BrokerConfig,
+    pub config: BrokerConfig,
     brokers: Vec<BrokerConfig>,
     tx: mpsc::Sender<MetadataCommand>,
     // TODO: add shutdown signal
