@@ -1,4 +1,7 @@
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 use bytes::BytesMut;
 use clap::Parser;
@@ -24,9 +27,57 @@ use tokio::{
     net::TcpStream,
 };
 
+use tokio::{
+    sync::mpsc,
+    time::{self, Duration, Instant},
+};
+
+async fn batcher(mut rx: mpsc::Receiver<String>) {
+    let mut batch = Vec::new();
+
+    // No timer running initially.
+    let timer = time::sleep(Duration::from_secs(86400));
+    tokio::pin!(timer);
+
+    let mut timer_active = false;
+
+    loop {
+        tokio::select! {
+            Some(item) = rx.recv() => {
+                batch.push(item);
+
+                if !timer_active {
+                    timer.as_mut().reset(
+                        Instant::now() + Duration::from_secs(5)
+                    );
+                    timer_active = true;
+                }
+
+                if batch.len() >= 100 {
+                    flush(&mut batch).await;
+                    timer_active = false;
+                }
+            }
+
+            _ = &mut timer, if timer_active => {
+                flush(&mut batch).await;
+                timer_active = false;
+            }
+        }
+    }
+}
+
+async fn flush(batch: &mut Vec<String>) {
+    println!("Sending {} items", batch.len());
+    batch.clear();
+}
+
 pub struct Producer {
     stream: TcpStream,
     metadata_image: MetadataResponse,
+    // Records will be combined in batch before uploaded.
+    pending_batch: HashMap<String, HashMap<u16, Vec<Record>>>,
+    pending_timer: Option<Instant>,
 }
 
 #[derive(Debug, Builder)]
@@ -34,8 +85,19 @@ pub struct ProducerConfig {
     bootstrap_servers: Vec<String>,
     ms_wait: u64,
     max_bytes: u32,
-    // Records will be combined in batch before uploaded.
-    pending_batch: HashMap<String, Vec<Record>>,
+}
+
+pub struct PublishPayload {
+    topic: String,
+    key: Option<String>,
+    // FIXME: maybe I can take Bytes already as input?
+    value: String,
+}
+
+impl Into<Record> for PublishPayload {
+    fn into(self) -> Record {
+        todo!()
+    }
 }
 
 impl Producer {
@@ -82,12 +144,8 @@ impl Producer {
                 // RecordBatch
             }
         }
-    }
-
-    // FIXME: maybe return error
-    // TODO: maybe rename to `try_publish`
-    // This waits for publish response and triggers shutdown
-    pub async fn publish_once(&mut self, payload: PublishPayload) {
+        /**
+         *
         let topic_metadata = self
             .metadata_image
             .topics
@@ -141,5 +199,48 @@ impl Producer {
 
         let produce_response = Frame::decode_response(&buf.freeze(), response_size).unwrap();
         println!("Successfully wrote: {produce_response:#?} into broker");
+         *
+         */
+        println!("full batch published");
+    }
+
+    pub async fn publish_async(&mut self, payload: PublishPayload) {
+        self.pending_batch
+            .entry(payload.topic)
+            .and_modify(|partitions| {
+                partitions
+                    .entry(self.calculate_index(payload))
+                    .and_modify(|partition| partition.push(payload.into()))
+            });
+        // trigger timer or check size
+    }
+
+    // FIXME: maybe return error
+    // TODO: maybe rename to `try_publish`
+    // This waits for publish response and triggers shutdown
+    pub async fn publish_once(&mut self, payload: PublishPayload) {
+        self.publish(HashMap::from([(
+            payload.topic,
+            HashMap::from([(self.calculate_index(payload), vec![payload.into()])]),
+        )]))
+        .await;
+        // send signal to terminate
+    }
+
+    // Calculates partition index for a given record
+    fn calculate_index(&self, payload: PublishPayload) -> Option<usize> {
+        let topic_metadata = self
+            .metadata_image
+            .topics
+            .iter()
+            .find(|t| t.name == payload.topic)
+            .unwrap();
+
+        match payload.key {
+            Some(ref key) => {
+                murmur2(key.as_bytes(), rand::random()) as usize % topic_metadata.partitions.len()
+            }
+            None => rand::random_range(0..topic_metadata.partitions.len()),
+        }
     }
 }
