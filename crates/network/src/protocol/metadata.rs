@@ -1,5 +1,3 @@
-use std::fmt::Error;
-
 use serde::Deserialize;
 
 use crate::protocol::{body::FrameBody, error_codes::ErrorCode};

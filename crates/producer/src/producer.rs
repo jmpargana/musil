@@ -1,5 +1,5 @@
 use bytes::BytesMut;
-use storage::protocol::{Frame, body::FrameBody, header::ApiKey, metadata::MetadataRequest};
+use network::protocol::{Frame, body::FrameBody, header::ApiKey, metadata::MetadataRequest};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,

@@ -13,21 +13,21 @@ use tokio::{
 
 use storage::{
     partition::handle::PartitionHandle,
-    protocol::{
-        Frame,
-        body::FrameBody,
-        error_codes::ErrorCode,
-        fetch::response::{
-            fetch_response::FetchResponse, partition_response::PartitionResponse,
-            topic_response::TopicResponse,
-        },
-        metadata::{MetadataResponse, PartitionMetadata, TopicMetadata},
-        produce::response::{
-            partition_response::ProducePartitionResponse, produce_response::ProduceResponse,
-            topic_response::ProduceTopicResponse,
-        },
-    },
     topic::TopicPartition,
+};
+use network::protocol::{
+    Frame,
+    body::FrameBody,
+    error_codes::ErrorCode,
+    fetch::response::{
+        fetch_response::FetchResponse, partition_response::PartitionResponse,
+        topic_response::TopicResponse,
+    },
+    metadata::{MetadataResponse, PartitionMetadata, TopicMetadata},
+    produce::response::{
+        partition_response::ProducePartitionResponse, produce_response::ProduceResponse,
+        topic_response::ProduceTopicResponse,
+    },
 };
 
 use crate::broker::{
@@ -238,21 +238,21 @@ mod tests {
 
     use storage::partition::config::PartitionConfigBuilder;
     use storage::partition::handle::PartitionHandle;
-    use storage::protocol::Frame;
-    use storage::protocol::body::FrameBody;
-    use storage::protocol::error_codes::ErrorCode;
-    use storage::protocol::fetch::request::fetch_partition::FetchPartition;
-    use storage::protocol::fetch::request::fetch_request::FetchRequest;
-    use storage::protocol::fetch::request::fetch_topic::FetchTopic;
-    use storage::protocol::header::{ApiKey, RequestHeaderBuilder};
-    use storage::protocol::produce::acks::Acks;
-    use storage::protocol::produce::request::produce_partition::ProducePartition;
-    use storage::protocol::produce::request::produce_request::ProduceRequest;
-    use storage::protocol::produce::request::produce_topic::ProduceTopic;
-    use storage::protocol::produce::response::produce_response::ProduceResponse;
-    use storage::storage::record::Record;
-    use storage::storage::record_batch::RecordBatch;
     use storage::topic::TopicPartition;
+    use network::protocol::Frame;
+    use network::protocol::body::FrameBody;
+    use network::protocol::error_codes::ErrorCode;
+    use network::protocol::fetch::request::fetch_partition::FetchPartition;
+    use network::protocol::fetch::request::fetch_request::FetchRequest;
+    use network::protocol::fetch::request::fetch_topic::FetchTopic;
+    use network::protocol::header::{ApiKey, RequestHeaderBuilder};
+    use network::protocol::produce::acks::Acks;
+    use network::protocol::produce::request::produce_partition::ProducePartition;
+    use network::protocol::produce::request::produce_request::ProduceRequest;
+    use network::protocol::produce::request::produce_topic::ProduceTopic;
+    use network::protocol::produce::response::produce_response::ProduceResponse;
+    use proto::record::Record;
+    use proto::record_batch::RecordBatch;
 
     use super::Broker;
 
@@ -285,7 +285,7 @@ mod tests {
         Broker::with_partitions(partitions)
     }
 
-    fn make_header(api_key: ApiKey) -> storage::protocol::header::RequestHeader {
+    fn make_header(api_key: ApiKey) -> network::protocol::header::RequestHeader {
         RequestHeaderBuilder::default()
             .api_key(api_key)
             .api_version(0)
@@ -473,7 +473,7 @@ mod tests {
         Frame {
             size: 0,
             header: make_header(ApiKey::Metadata),
-            body: FrameBody::Metadata(storage::protocol::metadata::MetadataRequest {
+            body: FrameBody::Metadata(network::protocol::metadata::MetadataRequest {
                 topics: vec![],
                 allow_auto_topic_creation: false,
             }),

@@ -6,8 +6,8 @@ use tokio::{
     net::TcpStream,
 };
 
-use broker::broker::Broker;
-use storage::protocol::{Frame, codec::ParseError};
+use crate::broker::Broker;
+use network::protocol::{Frame, codec::ParseError};
 
 pub struct Connection {
     pub stream: TcpStream,
@@ -68,25 +68,25 @@ mod tests {
         net::TcpListener,
     };
 
-    use broker::broker::Broker;
+    use crate::broker::Broker;
     use storage::{
         partition::{config::PartitionConfigBuilder, handle::PartitionHandle},
-        protocol::{
-            Frame,
-            body::FrameBody,
-            header::{ApiKey, RequestHeaderBuilder},
-            produce::{
-                acks::Acks,
-                request::{
-                    produce_partition::ProducePartition,
-                    produce_request::ProduceRequest,
-                    produce_topic::ProduceTopic,
-                },
-            },
-        },
-        storage::{record::Record, record_batch::RecordBatch},
         topic::TopicPartition,
     };
+    use network::protocol::{
+        Frame,
+        body::FrameBody,
+        header::{ApiKey, RequestHeaderBuilder},
+        produce::{
+            acks::Acks,
+            request::{
+                produce_partition::ProducePartition,
+                produce_request::ProduceRequest,
+                produce_topic::ProduceTopic,
+            },
+        },
+    };
+    use proto::{record::Record, record_batch::RecordBatch};
 
     use super::Connection;
 
@@ -191,7 +191,7 @@ mod tests {
     }
 
     fn metadata_frame(correlation_id: u32) -> Frame {
-        use storage::protocol::metadata::MetadataRequest;
+        use network::protocol::metadata::MetadataRequest;
         Frame {
             size: 0,
             header: RequestHeaderBuilder::default()

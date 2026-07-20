@@ -28,7 +28,6 @@ impl Record {
     }
 
     pub fn decode(buf: &[u8]) -> io::Result<Record> {
-        // TODO: call `From` trait instead.
         Record::decode_raw(buf).map(|it| it.0)
     }
 
@@ -93,7 +92,7 @@ impl Record {
 
 #[cfg(test)]
 mod tests {
-    use crate::storage::record::Record;
+    use crate::record::Record;
 
     #[test]
     fn decode_encode_e2e() {

@@ -7,10 +7,8 @@ use std::{
 
 use memmap::MmapOptions;
 
-use crate::{
-    segment::{config::SegmentConfig, metadata::SegmentView},
-    storage::record_batch::RecordBatch,
-};
+use crate::segment::{config::SegmentConfig, metadata::SegmentView};
+use proto::record_batch::RecordBatch;
 
 const INDEX_ENTRY_SIZE: usize = 16;
 
@@ -171,7 +169,7 @@ mod tests {
     use bytes::Bytes;
 
     use crate::segment::config::SegmentConfigBuilder;
-    use crate::storage::record_batch::RecordBatch;
+    use proto::record_batch::RecordBatch;
 
     use super::*;
 

@@ -1,4 +1,4 @@
-use crate::protocol::error_codes::ErrorCode;
+use crate::error_codes::ErrorCode;
 
 #[derive(Debug, Clone)]
 pub struct CurrentLeader {
@@ -45,7 +45,7 @@ impl ProducePartitionResponse {
         }
     }
 
-    pub(crate) fn get_size(&self) -> u32 {
+    pub fn get_size(&self) -> u32 {
         let current_leader_size = if self.current_leader.is_some() { 1 + 8 } else { 1 };
         4 + 2 + 8 + 8 + 8 + 2 + self.error_message.len() as u32 + current_leader_size
     }

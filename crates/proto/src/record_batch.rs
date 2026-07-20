@@ -2,7 +2,7 @@ use std::{fs::File, os::unix::fs::FileExt};
 
 use bytes::{BufMut, Bytes, BytesMut};
 
-use crate::storage::record::Record;
+use crate::record::Record;
 
 #[derive(Debug)]
 pub struct RecordBatch {
@@ -97,9 +97,8 @@ impl RecordBatch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::record::Record;
+    use crate::record::Record;
     use std::io::Write;
-    use tempdir::TempDir;
 
     fn make_batch(base_offset: u64, records: &[Record]) -> RecordBatch {
         let records_count = records.len() as u32;
@@ -185,8 +184,9 @@ mod tests {
         let record = Record::new(0, b"file", b"record");
         let raw = encoded_batch_bytes(55, &[record.clone()]);
 
-        let tmp = TempDir::new("rafka-test").unwrap();
-        let path = tmp.path().join("batch.bin");
+        let dir = std::env::temp_dir().join("rafka-proto-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("batch.bin");
         let mut f = std::fs::File::create(&path).unwrap();
         f.write_all(&raw).unwrap();
         drop(f);
@@ -201,5 +201,7 @@ mod tests {
         assert_eq!(from_file.records, from_slice.records);
 
         assert_eq!(Record::decode(&from_file.records).unwrap(), record);
+
+        let _ = std::fs::remove_file(&path);
     }
 }

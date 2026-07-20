@@ -1,5 +1,5 @@
-use crate::protocol::error_codes::ErrorCode;
-use crate::storage::record_batch::RecordBatch;
+use crate::error_codes::ErrorCode;
+use crate::record_batch::RecordBatch;
 
 #[derive(Debug)]
 pub struct PartitionResponse {

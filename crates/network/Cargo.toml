@@ -4,9 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-broker = { path = "../broker" }
-storage = { path = "../storage" }
+proto = { path = "../proto" }
 bytes = "1"
+derive_builder = "0.20"
+rand = "0.9"
+serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 

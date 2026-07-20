@@ -2,9 +2,10 @@ use std::{fs::File, os::unix::fs::FileExt, sync::Arc};
 
 use memmap::{Mmap, MmapOptions};
 
-use crate::{
-    protocol::fetch::request::fetch_partition::FetchPartition,
-    storage::{record::Record, record_batch::RecordBatch},
+use proto::{
+    fetch::request::fetch_partition::FetchPartition,
+    record::Record,
+    record_batch::RecordBatch,
 };
 
 const INDEX_ENTRY_SIZE: usize = 16;
@@ -214,8 +215,8 @@ mod tests {
     use super::*;
     use crate::segment::config::SegmentConfigBuilder;
     use crate::segment::log_segment::LogSegment;
-    use crate::storage::record::Record;
-    use crate::storage::record_batch::RecordBatch;
+    use proto::record::Record;
+    use proto::record_batch::RecordBatch;
     use bytes::Bytes;
 
     fn make_seg(dir: &tempdir::TempDir, base_offset: u64) -> LogSegment {

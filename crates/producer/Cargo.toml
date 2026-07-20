@@ -8,5 +8,7 @@ tokio.workspace = true
 murmur2.workspace = true
 rand.workspace = true
 storage.workspace = true
+network = { path = "../network" }
+proto = { path = "../proto" }
 derive_builder.workspace = true
 bytes.workspace = true

@@ -5,12 +5,10 @@ use std::{
 
 use bytes::BytesMut;
 use murmur2::murmur2;
-use storage::{
-    protocol::{
-        Frame, metadata::MetadataResponse, produce::request::produce_request::ProduceRequest,
-    },
-    storage::record::Record,
+use network::protocol::{
+    Frame, metadata::MetadataResponse, produce::request::produce_request::ProduceRequest,
 };
+use proto::record::Record;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,

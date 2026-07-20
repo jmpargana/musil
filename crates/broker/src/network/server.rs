@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bytes::BytesMut;
 use tokio::net::TcpListener;
 
-use broker::broker::Broker;
+use crate::broker::Broker;
 
 use crate::network::connection::Connection;
 
@@ -51,25 +51,25 @@ mod tests {
         net::TcpListener,
     };
 
-    use broker::broker::Broker;
+    use crate::broker::Broker;
     use storage::{
         partition::{config::PartitionConfigBuilder, handle::PartitionHandle},
-        protocol::{
-            Frame,
-            body::FrameBody,
-            header::{ApiKey, RequestHeaderBuilder},
-            produce::{
-                acks::Acks,
-                request::{
-                    produce_partition::ProducePartition,
-                    produce_request::ProduceRequest,
-                    produce_topic::ProduceTopic,
-                },
-            },
-        },
-        storage::{record::Record, record_batch::RecordBatch},
         topic::TopicPartition,
     };
+    use network::protocol::{
+        Frame,
+        body::FrameBody,
+        header::{ApiKey, RequestHeaderBuilder},
+        produce::{
+            acks::Acks,
+            request::{
+                produce_partition::ProducePartition,
+                produce_request::ProduceRequest,
+                produce_topic::ProduceTopic,
+            },
+        },
+    };
+    use proto::{record::Record, record_batch::RecordBatch};
 
     use super::SocketServer;
 

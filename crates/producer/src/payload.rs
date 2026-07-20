@@ -1,4 +1,4 @@
-use storage::storage::record::Record;
+use proto::record::Record;
 
 pub struct PublishPayload {
     pub topic: String,

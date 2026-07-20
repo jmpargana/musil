@@ -1,12 +1,10 @@
 use std::{collections::HashMap, time::Duration};
 
-use crate::{
-    protocol::produce::{
-        acks::Acks,
-        request::{produce_partition::ProducePartition, produce_topic::ProduceTopic},
-    },
-    storage::{record::Record, record_batch::RecordBatch},
+use crate::protocol::produce::{
+    acks::Acks,
+    request::{produce_partition::ProducePartition, produce_topic::ProduceTopic},
 };
+use proto::record::Record;
 
 #[derive(Debug)]
 pub struct ProduceRequest {

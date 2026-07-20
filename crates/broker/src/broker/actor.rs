@@ -4,15 +4,13 @@ use arc_swap::ArcSwap;
 use bytes::Bytes;
 use tokio::sync::mpsc;
 
-use storage::{
-    partition::{config::PartitionConfigBuilder, handle::PartitionHandle},
-    protocol::{
-        error_codes::ErrorCode,
-        metadata::{CreateTopicResponse, TopicResponse},
-        produce::acks::Acks,
-    },
-    storage::{record::Record, record_batch::RecordBatch},
+use storage::partition::{config::PartitionConfigBuilder, handle::PartitionHandle};
+use network::protocol::{
+    error_codes::ErrorCode,
+    metadata::{CreateTopicResponse, TopicResponse},
+    produce::acks::Acks,
 };
+use proto::{record::Record, record_batch::RecordBatch};
 
 use crate::broker::{
     command::MetadataCommand,

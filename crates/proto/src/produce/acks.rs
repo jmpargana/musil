@@ -1,4 +1,5 @@
-use crate::protocol::header::InvalidEnumValue;
+#[derive(Debug)]
+pub struct InvalidEnumValue(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Acks {

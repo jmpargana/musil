@@ -9,21 +9,19 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::{
-    partition::{
-        actor::{PartitionActor, PartitionActorConfig},
-        command::PartitionCommand,
-        config::PartitionConfig,
-        state::PartitionState,
+use crate::partition::{
+    actor::{PartitionActor, PartitionActorConfig},
+    command::PartitionCommand,
+    config::PartitionConfig,
+    state::PartitionState,
+};
+use proto::{
+    fetch::{
+        request::fetch_partition::FetchPartition,
+        response::partition_response::PartitionResponse,
     },
-    protocol::{
-        fetch::{
-            request::fetch_partition::FetchPartition,
-            response::partition_response::PartitionResponse,
-        },
-        produce::{acks::Acks, response::partition_response::ProducePartitionResponse},
-    },
-    storage::record_batch::RecordBatch,
+    produce::{acks::Acks, response::partition_response::ProducePartitionResponse},
+    record_batch::RecordBatch,
 };
 
 pub struct PartitionHandle {
@@ -92,9 +90,9 @@ mod tests {
     use bytes::Bytes;
 
     use crate::partition::config::PartitionConfigBuilder;
-    use crate::protocol::fetch::request::fetch_partition::FetchPartition;
-    use crate::storage::record::Record;
-    use crate::storage::record_batch::RecordBatch;
+    use proto::fetch::request::fetch_partition::FetchPartition;
+    use proto::record::Record;
+    use proto::record_batch::RecordBatch;
 
     use super::*;
 

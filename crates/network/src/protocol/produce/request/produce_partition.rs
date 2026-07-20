@@ -1,4 +1,4 @@
-use crate::storage::record_batch::RecordBatch;
+use proto::record_batch::RecordBatch;
 
 #[derive(Debug)]
 pub struct ProducePartition {

@@ -1,8 +1,9 @@
 use tokio::sync::oneshot;
 
-use crate::{
-    protocol::produce::{acks::Acks, response::partition_response::ProducePartitionResponse},
-    storage::{record::Record, record_batch::RecordBatch},
+use proto::{
+    produce::{acks::Acks, response::partition_response::ProducePartitionResponse},
+    record::Record,
+    record_batch::RecordBatch,
 };
 
 pub enum PartitionCommand {

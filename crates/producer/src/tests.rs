@@ -1,20 +1,18 @@
 use std::{collections::HashMap, time::Duration};
 
-use storage::{
-    protocol::{
-        Frame,
-        body::FrameBody,
-        error_codes::ErrorCode,
-        header::ApiKey,
-        metadata::{BrokerMetadata, MetadataResponse, PartitionMetadata, TopicMetadata},
-        produce::response::{
-            partition_response::ProducePartitionResponse,
-            produce_response::ProduceResponse,
-            topic_response::ProduceTopicResponse,
-        },
+use network::protocol::{
+    Frame,
+    body::FrameBody,
+    error_codes::ErrorCode,
+    header::ApiKey,
+    metadata::{BrokerMetadata, MetadataResponse, PartitionMetadata, TopicMetadata},
+    produce::response::{
+        partition_response::ProducePartitionResponse,
+        produce_response::ProduceResponse,
+        topic_response::ProduceTopicResponse,
     },
-    storage::record::Record,
 };
+use proto::record::Record;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,

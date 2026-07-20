@@ -10,8 +10,8 @@ use tokio::sync::{mpsc, oneshot};
 use crate::partition::command::PartitionCommand;
 use crate::partition::config::PartitionConfig;
 use crate::partition::state::PartitionState;
-use crate::protocol::produce::acks::Acks;
-use crate::protocol::produce::response::partition_response::ProducePartitionResponse;
+use proto::produce::acks::Acks;
+use proto::produce::response::partition_response::ProducePartitionResponse;
 use crate::segment::config::SegmentConfigBuilder;
 use crate::segment::log_segment::LogSegment;
 
@@ -267,7 +267,7 @@ impl PartitionActor {
 mod tests {
     use super::*;
     use crate::replica::ReplicaMetadata;
-    use crate::storage::record_batch::RecordBatch;
+    use proto::record_batch::RecordBatch;
     use bytes::Bytes;
     use tempdir::TempDir;
     use tokio::sync::oneshot;

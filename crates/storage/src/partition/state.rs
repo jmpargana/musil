@@ -1,16 +1,16 @@
 use std::{cmp::max, sync::Arc};
 
-use crate::{
-    protocol::{
-        error_codes::ErrorCode,
-        fetch::{
-            request::fetch_partition::FetchPartition,
-            response::partition_response::PartitionResponse,
-        },
+use proto::{
+    error_codes::ErrorCode,
+    fetch::{
+        request::fetch_partition::FetchPartition,
+        response::partition_response::PartitionResponse,
     },
+    record_batch::RecordBatch,
+};
+use crate::{
     replica::ReplicaMetadata,
     segment::metadata::SegmentView,
-    storage::record_batch::RecordBatch,
 };
 
 #[derive(Clone)]
