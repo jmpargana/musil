@@ -25,6 +25,7 @@ tokio = { version = "1.52.3", features = ["full"] }
 tracing = "0.1.44"
 broker = { path = "crates/broker" }
 network = { path = "crates/network" }
+proto = { path = "crates/proto" }
 storage = { path = "crates/storage" }
 
 [dependencies]

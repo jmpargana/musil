@@ -1,6 +1,6 @@
 use bytes::BytesMut;
 use clap::Parser;
-use storage::protocol::{Frame, body::FrameBody, header::ApiKey, metadata::CreateTopicRequest};
+use network::protocol::{Frame, body::FrameBody, header::ApiKey, metadata::CreateTopicRequest};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,

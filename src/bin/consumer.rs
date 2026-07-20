@@ -1,6 +1,6 @@
 use bytes::BytesMut;
 use clap::Parser;
-use storage::protocol::{
+use network::protocol::{
     Frame,
     body::FrameBody,
     fetch::request::{

@@ -95,7 +95,7 @@ mod tests {
     use std::time::Duration;
 
     use producer::{Producer, ProducerConfigBuilder, PublishPayload};
-    use storage::protocol::{
+    use network::protocol::{
         Frame,
         body::FrameBody,
         error_codes::ErrorCode,
