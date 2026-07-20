@@ -4,7 +4,13 @@ version = "0.1.0"
 edition = "2024"
 publish = ["artifactory"]
 
-[dependencies]
+[workspace]
+resolver = "3"
+members = [
+    "crates/*",
+]
+
+[workspace.dependencies]
 arc-swap = "1.9.2"
 byteorder = "1.5.0"
 bytes = "1.12.1"
@@ -17,13 +23,22 @@ config = "0.14"
 serde = { version = "1.0.228", features = ["derive"] }
 tokio = { version = "1.52.3", features = ["full"] }
 tracing = "0.1.44"
-
-# local dependencies
 broker = { path = "crates/broker" }
-producer = { path = "crates/producer" }
-consumer = { path = "crates/consumer" }
-storage = { path = "crates/storage" }
 network = { path = "crates/network" }
+storage = { path = "crates/storage" }
+
+[dependencies]
+broker = { path = "crates/broker" }
+network = { path = "crates/network" }
+storage = { path = "crates/storage" }
+bytes = "1"
+clap = { version = "4", features = ["derive"] }
+config = "0.14"
+murmur2 = "0.1"
+rand = "0.9"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
 
 [dev-dependencies]
 tempdir = "0.3.7"
