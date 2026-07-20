@@ -2,10 +2,8 @@ use clap::Parser;
 use serde::Deserialize;
 use std::sync::Arc;
 
-use rafka::{
-    broker::{Broker, config::BrokerConfig},
-    network::server::SocketServer,
-};
+use broker::broker::{Broker, config::BrokerConfig};
+use network::network::server::SocketServer;
 
 #[derive(Debug, Deserialize)]
 struct ControllerConfig {
