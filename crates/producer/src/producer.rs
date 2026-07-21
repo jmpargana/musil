@@ -1,11 +1,17 @@
 use bytes::BytesMut;
-use network::protocol::{Frame, body::FrameBody, header::ApiKey, metadata::MetadataRequest};
+use network::protocol::{
+    Frame,
+    body::FrameBody,
+    header::ApiKey,
+    metadata::{MetadataRequest, MetadataResponse},
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
     sync::mpsc,
     task::JoinHandle,
 };
+use tracing::{debug, info};
 
 use crate::{
     actor::ProducerActor, command::ProducerCommand, config::ProducerConfig, error::ProducerError,
@@ -21,6 +27,9 @@ impl Producer {
     pub async fn new(cfg: ProducerConfig) -> Result<Self, ProducerError> {
         // TODO: use multiple brokers if first fails
         let addr = cfg.bootstrap_servers.first().unwrap();
+
+        debug!(message="Connecting to broker", %addr);
+
         let mut stream = TcpStream::connect(addr)
             .await
             .map_err(|_| ProducerError::ConnErr)?;
@@ -46,10 +55,12 @@ impl Producer {
         let metadata_response = Frame::decode_response(&buf.freeze(), response_size)
             .map_err(|_| ProducerError::ParseErr)?;
 
-        let metadata = metadata_response
+        let metadata: MetadataResponse = metadata_response
             .body
             .try_into()
             .map_err(|_| ProducerError::FormatErr)?;
+
+        info!(message="Available topics", topics=?metadata.topics.iter().map(|t|t.name.clone()).collect::<Vec<String>>());
 
         let (tx, rx) = mpsc::channel(4096);
 
@@ -85,7 +96,7 @@ impl Producer {
         self.tx
             .send(ProducerCommand::Shutdown)
             .await
-            .map_err(|_| ProducerError::ClientErr)?;
-        self.handle.await.map_err(|_| ProducerError::ClientErr)
+            .map_err(|_| ProducerError::UnknownErr)?;
+        self.handle.await.map_err(|_| ProducerError::ChanClosed)
     }
 }

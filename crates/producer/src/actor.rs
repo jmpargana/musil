@@ -6,7 +6,8 @@ use std::{
 use bytes::BytesMut;
 use murmur2::murmur2;
 use network::protocol::{
-    Frame, metadata::MetadataResponse, produce::request::produce_request::ProduceRequest,
+    Frame, body::FrameBody, metadata::MetadataResponse,
+    produce::request::produce_request::ProduceRequest,
 };
 use proto::record::Record;
 use tokio::{
@@ -15,19 +16,25 @@ use tokio::{
     sync::mpsc,
     time,
 };
+use tracing::{debug, info};
 
 use crate::{
     command::ProducerCommand, config::ProducerConfig, error::ProducerError, payload::PublishPayload,
 };
 
+// `ProducerActor` should never be created from scratch. Instead, it's created and handled by the [`Producer`].
+// It's responsible for running a batching loop on a single thread, which aggregates records until either of
+// the two are full:
+//  - `ms-wait`
+//  - `max_bytes`
+//
+// Once that's achieved, it sends a `Produce` request to the broker.
+// NOTE: this only works with single-broker, because all leaders are in the same place.
 pub struct ProducerActor {
     pub stream: TcpStream,
     pub metadata_image: MetadataResponse,
     pub config: ProducerConfig,
-    // I'm not sure this is correct, but my idea is to have a single process running the loop.
-    // Since this class can not be copied over, otherwise a Actor/Handle pair would be needed, this probably doesn't make any sense.
     pub rx: mpsc::Receiver<ProducerCommand>,
-    // FIXME: take signal to terminate as well
 }
 
 impl ProducerActor {
@@ -46,11 +53,14 @@ impl ProducerActor {
                 Some(item) = self.rx.recv() => {
                     match item {
                         ProducerCommand::Sync(publish_payload) => {
+                            info!(message="Publishing record immediately", ?publish_payload);
                             self.publish_once(publish_payload).await.unwrap();
                         },
                         ProducerCommand::Async(publish_payload) => {
+                            info!(message="Adding payload to batch", ?publish_payload);
                             let item = publish_payload;
                             let idx = self.calculate_index(&item).unwrap(); // TODO: fix error handling here
+                            debug!(message="Calculated partition index", idx);
                             let partition = batch
                                 .entry(item.topic.clone())
                                 .or_default()
@@ -71,6 +81,7 @@ impl ProducerActor {
                             let produce_request: Frame = produce_request.into();
 
                             if produce_request.size >= self.config.max_bytes {
+                                info!(message="Max bytes reached. Sending batch request");
                                 self.publish_raw(produce_request).await.unwrap();
                                 timer_active = false;
                                 // TODO: a move like below could also be used maybe
@@ -88,6 +99,7 @@ impl ProducerActor {
                 }
 
                 _ = &mut timer, if timer_active && batch.len() > 0 => {
+                    info!(message="Tired of waiting. Sending batch request");
                     let batch_to_publish = std::mem::take(&mut batch);
                     self.publish(batch_to_publish).await.unwrap();
                     timer_active = false;
@@ -107,6 +119,7 @@ impl ProducerActor {
 
     // TODO: this only works for single broker. Sending to leader replica will require a refactor and multiple produce requests.
     pub async fn publish_raw(&mut self, produce_request: Frame) -> Result<(), ProducerError> {
+        debug!(message = "Publishing payload", ?produce_request);
         self.stream
             .write_all(&produce_request.encode())
             .await
@@ -126,7 +139,15 @@ impl ProducerActor {
 
         let produce_response = Frame::decode_response(&buf.freeze(), response_size)
             .map_err(|_| ProducerError::ParseErr)?;
-        println!("Successfully wrote: {produce_response:#?} into broker");
+
+        debug!(message = "Successful produce", ?produce_response);
+
+        let FrameBody::ProduceResponse(response) = produce_response.body else {
+            panic!("expected ProduceResponse")
+        };
+
+        info!(message = "New offsets", %response);
+
         Ok(())
     }
 

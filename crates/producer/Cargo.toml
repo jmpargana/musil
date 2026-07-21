@@ -12,3 +12,4 @@ network = { path = "../network" }
 proto = { path = "../proto" }
 derive_builder.workspace = true
 bytes.workspace = true
+tracing.workspace = true

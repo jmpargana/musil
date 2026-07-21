@@ -1,5 +1,6 @@
 use proto::record::Record;
 
+#[derive(Debug)]
 pub struct PublishPayload {
     pub topic: String,
     pub key: Option<String>,

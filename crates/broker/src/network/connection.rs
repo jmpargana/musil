@@ -5,6 +5,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
 };
+use tracing::info;
 
 use crate::broker::Broker;
 use network::protocol::{Frame, codec::ParseError};
@@ -32,6 +33,10 @@ impl Connection {
                     break;
                 }
             };
+            info!(
+                api_key = ?request.header.api_key,
+                "Handling request for caller"
+            );
             let response = match self.broker.handle(request).await {
                 Ok(r) => r,
                 Err(_) => unreachable!(
@@ -48,13 +53,19 @@ impl Connection {
     async fn read_frame(&mut self) -> Result<Frame, ConnectionError> {
         let size = self.stream.read_u32().await.map_err(ConnectionError::Io)?;
         self.read_buf.resize(size as usize, 0);
-        self.stream.read_exact(&mut self.read_buf).await.map_err(ConnectionError::Io)?;
+        self.stream
+            .read_exact(&mut self.read_buf)
+            .await
+            .map_err(ConnectionError::Io)?;
         Frame::decode(&self.read_buf.split().freeze(), size).map_err(ConnectionError::Protocol)
     }
 
     async fn write_frame(&mut self, res: Frame) -> Result<(), ConnectionError> {
         let bytes = res.encode();
-        self.stream.write_all(&bytes).await.map_err(ConnectionError::Io)
+        self.stream
+            .write_all(&bytes)
+            .await
+            .map_err(ConnectionError::Io)
     }
 }
 
@@ -69,10 +80,6 @@ mod tests {
     };
 
     use crate::broker::Broker;
-    use storage::{
-        partition::{config::PartitionConfigBuilder, handle::PartitionHandle},
-        topic::TopicPartition,
-    };
     use network::protocol::{
         Frame,
         body::FrameBody,
@@ -80,13 +87,16 @@ mod tests {
         produce::{
             acks::Acks,
             request::{
-                produce_partition::ProducePartition,
-                produce_request::ProduceRequest,
+                produce_partition::ProducePartition, produce_request::ProduceRequest,
                 produce_topic::ProduceTopic,
             },
         },
     };
     use proto::{record::Record, record_batch::RecordBatch};
+    use storage::{
+        partition::{config::PartitionConfigBuilder, handle::PartitionHandle},
+        topic::TopicPartition,
+    };
 
     use super::Connection;
 
@@ -103,7 +113,13 @@ mod tests {
         let handle = PartitionHandle::spawn(partition_id as u32, cfg);
         std::mem::forget(dir);
         let mut partitions = HashMap::new();
-        partitions.insert(TopicPartition { topic_id: topic.to_string(), partition_id }, handle);
+        partitions.insert(
+            TopicPartition {
+                topic_id: topic.to_string(),
+                partition_id,
+            },
+            handle,
+        );
         Arc::new(Broker::with_partitions(partitions))
     }
 
@@ -130,7 +146,10 @@ mod tests {
                 timeout: Duration::ZERO,
                 topics: vec![ProduceTopic {
                     topic: topic.to_string(),
-                    partitions: vec![ProducePartition { index: partition_id, records: batch }],
+                    partitions: vec![ProducePartition {
+                        index: partition_id,
+                        records: batch,
+                    }],
                 }],
             }),
         }
@@ -141,7 +160,11 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
-            let conn = Connection { stream, broker, read_buf: BytesMut::new() };
+            let conn = Connection {
+                stream,
+                broker,
+                read_buf: BytesMut::new(),
+            };
             conn.handle().await;
         });
         tokio::net::TcpStream::connect(addr).await.unwrap()
@@ -214,7 +237,11 @@ mod tests {
         let mut client = spawn_connection(broker).await;
         send_frame(&mut client, metadata_frame(7)).await;
         let size = client.read_u32().await.unwrap();
-        assert_eq!(BytesMut::with_capacity(size as usize).len(), 0, "with_capacity leaves len=0");
+        assert_eq!(
+            BytesMut::with_capacity(size as usize).len(),
+            0,
+            "with_capacity leaves len=0"
+        );
         let mut buf = BytesMut::zeroed(size as usize);
         client.read_exact(&mut buf).await.unwrap();
         assert_eq!(buf.len(), size as usize);

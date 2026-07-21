@@ -7,4 +7,5 @@ pub enum ProducerError {
     ClientErr,
     UnknownTopicErr,
     ChanClosed,
+    UnknownErr,
 }

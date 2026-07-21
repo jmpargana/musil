@@ -70,6 +70,10 @@ pub async fn run_loop(producer: &Producer, topic: String) {
 async fn main() {
     let args = Args::parse();
 
+    tracing_subscriber::fmt()
+        .try_init()
+        .expect("no logs will be bad");
+
     let producer = Producer::new(
         ProducerConfigBuilder::default()
             .bootstrap_servers(args.bootstrap_servers)
@@ -94,7 +98,6 @@ async fn main() {
 mod tests {
     use std::time::Duration;
 
-    use producer::{Producer, ProducerConfigBuilder, PublishPayload};
     use network::protocol::{
         Frame,
         body::FrameBody,
@@ -106,6 +109,7 @@ mod tests {
             topic_response::ProduceTopicResponse,
         },
     };
+    use producer::{Producer, ProducerConfigBuilder, PublishPayload};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpListener,

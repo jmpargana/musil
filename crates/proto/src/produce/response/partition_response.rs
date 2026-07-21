@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::error_codes::ErrorCode;
 
 #[derive(Debug, Clone)]
@@ -15,6 +17,16 @@ pub struct ProducePartitionResponse {
     pub log_start_offset: u64,
     pub error_message: String,
     pub current_leader: Option<CurrentLeader>,
+}
+
+impl Display for ProducePartitionResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "partition: {}, base_offset: {}",
+            self.index, self.base_offset
+        )
+    }
 }
 
 impl ProducePartitionResponse {
@@ -46,7 +58,11 @@ impl ProducePartitionResponse {
     }
 
     pub fn get_size(&self) -> u32 {
-        let current_leader_size = if self.current_leader.is_some() { 1 + 8 } else { 1 };
+        let current_leader_size = if self.current_leader.is_some() {
+            1 + 8
+        } else {
+            1
+        };
         4 + 2 + 8 + 8 + 8 + 2 + self.error_message.len() as u32 + current_leader_size
     }
 }

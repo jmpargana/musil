@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use bytes::BytesMut;
 use tokio::net::TcpListener;
+use tracing::{debug, info};
 
 use crate::broker::Broker;
 
@@ -22,6 +23,7 @@ impl SocketServer {
     }
 
     pub async fn listen_on(&self, addr: &str) {
+        info!(addr, "Broker listening");
         let ln = TcpListener::bind(addr).await.unwrap();
         self.accept_loop(ln).await;
     }
@@ -32,8 +34,13 @@ impl SocketServer {
 
     async fn accept_loop(&self, ln: TcpListener) {
         loop {
-            let (stream, _) = ln.accept().await.unwrap();
-            let conn = Connection { stream, broker: self.broker.clone(), read_buf: BytesMut::new() };
+            let (stream, peer_addr) = ln.accept().await.unwrap();
+            debug!(%peer_addr, "Received connection from");
+            let conn = Connection {
+                stream,
+                broker: self.broker.clone(),
+                read_buf: BytesMut::new(),
+            };
             tokio::spawn(async move {
                 conn.handle().await;
             });
@@ -52,10 +59,6 @@ mod tests {
     };
 
     use crate::broker::Broker;
-    use storage::{
-        partition::{config::PartitionConfigBuilder, handle::PartitionHandle},
-        topic::TopicPartition,
-    };
     use network::protocol::{
         Frame,
         body::FrameBody,
@@ -63,13 +66,16 @@ mod tests {
         produce::{
             acks::Acks,
             request::{
-                produce_partition::ProducePartition,
-                produce_request::ProduceRequest,
+                produce_partition::ProducePartition, produce_request::ProduceRequest,
                 produce_topic::ProduceTopic,
             },
         },
     };
     use proto::{record::Record, record_batch::RecordBatch};
+    use storage::{
+        partition::{config::PartitionConfigBuilder, handle::PartitionHandle},
+        topic::TopicPartition,
+    };
 
     use super::SocketServer;
 
@@ -86,7 +92,13 @@ mod tests {
         let handle = PartitionHandle::spawn(partition_id as u32, cfg);
         std::mem::forget(dir);
         let mut partitions = HashMap::new();
-        partitions.insert(TopicPartition { topic_id: topic.to_string(), partition_id }, handle);
+        partitions.insert(
+            TopicPartition {
+                topic_id: topic.to_string(),
+                partition_id,
+            },
+            handle,
+        );
         Arc::new(Broker::with_partitions(partitions))
     }
 
@@ -113,7 +125,10 @@ mod tests {
                 timeout: Duration::ZERO,
                 topics: vec![ProduceTopic {
                     topic: topic.to_string(),
-                    partitions: vec![ProducePartition { index: partition_id, records: batch }],
+                    partitions: vec![ProducePartition {
+                        index: partition_id,
+                        records: batch,
+                    }],
                 }],
             }),
         }
@@ -123,7 +138,9 @@ mod tests {
         let ln = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = ln.local_addr().unwrap();
         let server = SocketServer::new(broker);
-        tokio::spawn(async move { server.listen_on_listener(ln).await; });
+        tokio::spawn(async move {
+            server.listen_on_listener(ln).await;
+        });
         tokio::net::TcpStream::connect(addr).await.unwrap()
     }
 
@@ -163,7 +180,9 @@ mod tests {
         let ln = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = ln.local_addr().unwrap();
         let server = SocketServer::new(broker);
-        tokio::spawn(async move { server.listen_on_listener(ln).await; });
+        tokio::spawn(async move {
+            server.listen_on_listener(ln).await;
+        });
         for corr_id in [10u32, 20, 30] {
             let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
             send_frame(&mut client, produce_frame("orders", 0, corr_id)).await;
@@ -179,12 +198,17 @@ mod tests {
         let ln = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = ln.local_addr().unwrap();
         let server = SocketServer::new(broker);
-        tokio::spawn(async move { server.listen_on_listener(ln).await; });
+        tokio::spawn(async move {
+            server.listen_on_listener(ln).await;
+        });
         let handles: Vec<_> = (0u32..5)
             .map(|i| {
                 tokio::spawn(async move {
                     let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
-                    client.write_all(&produce_frame("orders", 0, i).encode()).await.unwrap();
+                    client
+                        .write_all(&produce_frame("orders", 0, i).encode())
+                        .await
+                        .unwrap();
                     let size = client.read_u32().await.unwrap();
                     let mut buf = vec![0u8; size as usize];
                     client.read_exact(&mut buf).await.unwrap();
@@ -193,6 +217,8 @@ mod tests {
                 })
             })
             .collect();
-        for h in handles { h.await.unwrap(); }
+        for h in handles {
+            h.await.unwrap();
+        }
     }
 }

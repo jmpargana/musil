@@ -2,8 +2,8 @@ use clap::Parser;
 use serde::Deserialize;
 use std::sync::Arc;
 
-use broker::{Broker, config::BrokerConfig};
 use broker::network::server::SocketServer;
+use broker::{Broker, config::BrokerConfig};
 
 #[derive(Debug, Deserialize)]
 struct ControllerConfig {
@@ -24,6 +24,10 @@ struct Args {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
+
+    tracing_subscriber::fmt()
+        .try_init()
+        .expect("no logs will be bad");
 
     let settings = config::Config::builder()
         .add_source(config::File::with_name(&args.config))
