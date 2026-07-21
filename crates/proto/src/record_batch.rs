@@ -1,3 +1,4 @@
+use core::fmt;
 use std::{fs::File, os::unix::fs::FileExt};
 
 use bytes::{BufMut, Bytes, BytesMut};
@@ -27,7 +28,7 @@ impl From<Vec<Record>> for RecordBatch {
             })
             .collect();
 
-        let batch_length = records.len() as u32;
+        let batch_length = records.len() as u32 + 4;
 
         RecordBatch {
             base_offset,
@@ -91,6 +92,16 @@ impl RecordBatch {
             records_count,
             records: records.freeze(),
         }
+    }
+}
+
+impl fmt::Display for RecordBatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let records: Bytes = self.records.clone().into();
+        while let Ok(record) = Record::decode(&records) {
+            write!(f, "\t\t\t\t{record}\n")?;
+        }
+        Ok(())
     }
 }
 

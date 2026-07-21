@@ -1,3 +1,5 @@
+use core::fmt;
+
 use crate::protocol::fetch::response::topic_response::TopicResponse;
 
 #[derive(Debug)]
@@ -9,5 +11,15 @@ pub struct FetchResponse {
 impl FetchResponse {
     pub fn get_size(&self) -> u32 {
         4 + 4 + self.responses.iter().map(|r| r.get_size()).sum::<u32>()
+    }
+}
+
+impl fmt::Display for FetchResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "fetch_response:\n")?;
+        for t in self.responses.iter() {
+            writeln!(f, "\t{t}")?;
+        }
+        Ok(())
     }
 }

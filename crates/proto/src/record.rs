@@ -1,3 +1,4 @@
+use core::fmt;
 use std::{
     io::{self, Write},
     time::UNIX_EPOCH,
@@ -9,6 +10,13 @@ pub struct Record {
     pub timestamp: u64,
     pub key: Vec<u8>,
     pub value: Vec<u8>,
+}
+
+impl fmt::Display for Record {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "key: {}", String::from_utf8_lossy(&self.key))?;
+        writeln!(f, "\t\t\t\tvalue: {}", String::from_utf8_lossy(&self.value))
+    }
 }
 
 impl Record {

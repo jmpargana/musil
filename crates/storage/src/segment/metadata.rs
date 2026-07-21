@@ -56,11 +56,13 @@ impl SegmentView {
     }
 
     pub fn fetch(&self, req: FetchPartition) -> Vec<RecordBatch> {
-        let Some(idx) = self.find_physical_position(req.fetch_offset) else {
-            return vec![];
+        let start = match self.find_physical_position(req.fetch_offset) {
+            Some(idx) => idx,
+            None if self.size > 0 => IndexEntry { offset: self.base_offset, pos: 0 },
+            None => return vec![],
         };
 
-        let Ok(mut pos) = self.linear_search(req.fetch_offset, idx) else {
+        let Ok(mut pos) = self.linear_search(req.fetch_offset, start) else {
             return vec![];
         };
 

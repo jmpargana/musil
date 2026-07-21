@@ -66,5 +66,10 @@ async fn main() {
     stream.read_exact(&mut buf).await.unwrap();
 
     let fetch_response = Frame::decode_response(&buf.freeze(), response_size).unwrap();
-    println!("Successfully read: {fetch_response:#?} from broker");
+
+    let FrameBody::FetchResponse(response) = fetch_response.body else {
+        panic!("impossible")
+    };
+
+    println!("{response}");
 }
