@@ -33,6 +33,7 @@ broker = { path = "crates/broker" }
 network = { path = "crates/network" }
 storage = { path = "crates/storage" }
 producer = { path = "crates/producer" }
+consumer = { path = "crates/consumer" }
 bytes = "1"
 clap = { version = "4", features = ["derive"] }
 config = "0.14"

@@ -5,12 +5,25 @@ use bytes::{BufMut, Bytes, BytesMut};
 
 use crate::record::Record;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RecordBatch {
     pub base_offset: u64,
     pub batch_length: u32,
     pub records_count: u32,
     pub records: Bytes,
+}
+
+impl From<RecordBatch> for Vec<Record> {
+    fn from(value: RecordBatch) -> Self {
+        let mut ans = Vec::with_capacity(value.records_count as usize);
+        let mut pos = 0;
+        for _ in 0..value.records_count {
+            let record = Record::decode(&value.records[pos..]).unwrap();
+            pos += record.get_size();
+            ans.push(record);
+        }
+        ans
+    }
 }
 
 impl From<Vec<Record>> for RecordBatch {
@@ -41,7 +54,7 @@ impl From<Vec<Record>> for RecordBatch {
 
 impl RecordBatch {
     pub fn get_size(&self) -> u32 {
-        12 + self.batch_length
+        8 + 4 + self.batch_length
     }
 
     pub fn update_base_offset(&mut self, offset: u64) {
@@ -92,16 +105,6 @@ impl RecordBatch {
             records_count,
             records: records.freeze(),
         }
-    }
-}
-
-impl fmt::Display for RecordBatch {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let records: Bytes = self.records.clone().into();
-        while let Ok(record) = Record::decode(&records) {
-            write!(f, "\t\t\t\t{record}\n")?;
-        }
-        Ok(())
     }
 }
 

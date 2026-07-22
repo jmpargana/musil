@@ -1,5 +1,6 @@
 use bytes::BytesMut;
 use clap::Parser;
+use consumer::{Consumer, ConsumerConfig, ConsumerConfigBuilder};
 use network::protocol::{
     Frame,
     body::FrameBody,
@@ -39,37 +40,16 @@ async fn main() {
     let args = Args::parse();
 
     let addr = args.bootstrap_servers.first().unwrap();
-    let mut stream = TcpStream::connect(addr).await.unwrap();
+    let cfg = ConsumerConfigBuilder::default()
+        .addr(addr.to_string())
+        .topic(args.topic)
+        .partition(args.partition)
+        .base_offset(args.offset)
+        .build()
+        .unwrap();
+    let mut consumer = Consumer::new(cfg).await;
 
-    let body = FetchRequest {
-        replica_id: -1,
-        max_bytes: 4096, // FIXME: use arg
-        topics: vec![FetchTopic {
-            topic: args.topic,
-            partitions: vec![FetchPartition {
-                partition: args.partition as u32, // FIXME: payload probably needs i32 instead.
-                fetch_offset: args.offset,
-                partition_max_bytes: 4096,
-                // FIXME: figure out why hw is needed in the payload?
-                high_watermark: 0,
-            }],
-        }],
-    };
-
-    let fetch_request = Frame::new(ApiKey::Fetch, FrameBody::Fetch(body));
-
-    stream.write_all(&fetch_request.encode()).await.unwrap();
-
-    let response_size = stream.read_u32().await.unwrap();
-    let mut buf = BytesMut::zeroed(response_size as usize);
-
-    stream.read_exact(&mut buf).await.unwrap();
-
-    let fetch_response = Frame::decode_response(&buf.freeze(), response_size).unwrap();
-
-    let FrameBody::FetchResponse(response) = fetch_response.body else {
-        panic!("impossible")
-    };
-
-    println!("{response}");
+    while let Some(record) = consumer.rx.recv().await {
+        println!("{record}");
+    }
 }

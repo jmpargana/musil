@@ -12,13 +12,6 @@ pub struct Record {
     pub value: Vec<u8>,
 }
 
-impl fmt::Display for Record {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "key: {}", String::from_utf8_lossy(&self.key))?;
-        writeln!(f, "\t\t\t\tvalue: {}", String::from_utf8_lossy(&self.value))
-    }
-}
-
 impl Record {
     pub fn new(offset_delta: u64, key: &[u8], value: &[u8]) -> Self {
         Self {
@@ -95,6 +88,10 @@ impl Record {
         size += self.value.len();
 
         Ok(size)
+    }
+
+    pub(crate) fn get_size(&self) -> usize {
+        8 + 8 + 4 + 4 + self.key.len() + self.value.len()
     }
 }
 
