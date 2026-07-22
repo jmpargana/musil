@@ -96,7 +96,8 @@ impl RecordBatch {
         let batch_length = u32::from_be_bytes(header[8..12].try_into().unwrap());
         let records_count = u32::from_be_bytes(header[12..16].try_into().unwrap());
 
-        let mut records = BytesMut::zeroed(batch_length as usize - 4);
+        let records_len = (batch_length as usize).saturating_sub(4);
+        let mut records = BytesMut::zeroed(records_len);
         file.read_at(&mut records, pos + 16).unwrap();
 
         Self {

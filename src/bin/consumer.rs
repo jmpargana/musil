@@ -1,18 +1,5 @@
-use bytes::BytesMut;
 use clap::Parser;
-use consumer::{Consumer, ConsumerConfig, ConsumerConfigBuilder};
-use network::protocol::{
-    Frame,
-    body::FrameBody,
-    fetch::request::{
-        fetch_partition::FetchPartition, fetch_request::FetchRequest, fetch_topic::FetchTopic,
-    },
-    header::ApiKey,
-};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
-};
+use consumer::{Consumer, ConsumerConfigBuilder};
 
 #[derive(Parser, Debug)]
 #[command(version)]
@@ -47,7 +34,10 @@ async fn main() {
         .base_offset(args.offset)
         .build()
         .unwrap();
-    let mut consumer = Consumer::new(cfg).await;
+    let mut consumer = Consumer::new(cfg).await.unwrap_or_else(|e| {
+        eprintln!("Failed to connect to broker: {e:?}");
+        std::process::exit(1);
+    });
 
     while let Some(record) = consumer.rx.recv().await {
         println!("{record}");

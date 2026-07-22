@@ -66,6 +66,10 @@ impl SegmentView {
             return vec![];
         };
 
+        if pos >= self.size as u64 {
+            return vec![];
+        }
+
         let batch = RecordBatch::decode_file(&self.log, pos);
 
         let target_delta = req.fetch_offset.saturating_sub(batch.base_offset);
@@ -73,28 +77,38 @@ impl SegmentView {
             bytes: &batch.records,
             pos: 0,
         };
+        let mut skipped_count = 0u32;
         let starting_pos = record_iter
-            .find_map(|(pos, record)| (record.offset_delta == target_delta).then_some(pos))
+            .find_map(|(pos, record)| {
+                if record.offset_delta == target_delta {
+                    Some(pos)
+                } else {
+                    skipped_count += 1;
+                    None
+                }
+            })
             .unwrap_or(0);
 
-        let actual_batch_length = batch.batch_length.saturating_sub(starting_pos as u32);
+        let sliced_records = batch.records.slice(starting_pos..);
+        let actual_batch_length = sliced_records.len() as u32 + 4;
 
         let mut batches = vec![RecordBatch {
             base_offset: req.fetch_offset,
             batch_length: actual_batch_length,
-            records_count: batch
-                .records_count
-                .saturating_sub((req.fetch_offset as u32).saturating_sub(batch.base_offset as u32)),
-            records: batch.records,
+            records_count: batch.records_count.saturating_sub(skipped_count),
+            records: sliced_records,
         }];
 
         let mut total_bytes = actual_batch_length;
         pos += 12 + batch.batch_length as u64;
         while total_bytes < req.partition_max_bytes {
-            if pos >= self.size as u64 {
+            if pos + 12 > self.size as u64 {
                 break;
             }
             let batch = RecordBatch::decode_file(&self.log, pos);
+            if 12 + batch.batch_length as u64 > self.size as u64 - pos {
+                break;
+            }
             total_bytes += batch.batch_length;
             pos += 12 + batch.batch_length as u64;
             if total_bytes <= req.partition_max_bytes {

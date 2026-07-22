@@ -9,6 +9,11 @@ use network::requests::{request_fetch, request_metadata};
 use proto::{record::Record, record_batch::RecordBatch};
 use tokio::{net::TcpStream, sync::mpsc, time};
 
+#[derive(Debug)]
+pub enum ConsumerError {
+    ConnErr(std::io::Error),
+}
+
 pub struct ConsumerRecord {
     topic: String,
     partition: u16,
@@ -62,9 +67,9 @@ pub struct Consumer {
 }
 
 impl Consumer {
-    pub async fn new(cfg: ConsumerConfig) -> Self {
+    pub async fn new(cfg: ConsumerConfig) -> Result<Self, ConsumerError> {
         let (tx, rx) = mpsc::channel(1024);
-        let actor = Arc::new(ConsumerActor::new(cfg, tx).await);
+        let actor = Arc::new(ConsumerActor::new(cfg, tx).await?);
 
         // TODO: maybe this could be triggered in the actor constructor directly?
         let a1 = actor.clone();
@@ -77,10 +82,13 @@ impl Consumer {
             a2.run_offset_sync_loop().await;
         });
 
-        Self { rx }
+        Ok(Self { rx })
     }
 }
 
+// In future, metadata manager and fetch menaager should be split into different structs.
+// Also, we'll need consumer group manager (once we have replication).
+// Finally, for persistent consumers, we also need commit_offsets at broker level, so consumers restart from correct place.
 struct ConsumerActor {
     high_watermark: Arc<Mutex<u64>>,
     commit_offset: Arc<Mutex<u64>>,
@@ -91,18 +99,24 @@ struct ConsumerActor {
 }
 
 impl ConsumerActor {
-    async fn new(cfg: ConsumerConfig, tx: mpsc::Sender<ConsumerRecord>) -> Self {
-        let stream = TcpStream::connect(&cfg.addr).await.unwrap();
+    async fn new(cfg: ConsumerConfig, tx: mpsc::Sender<ConsumerRecord>) -> Result<Self, ConsumerError> {
+        let stream = TcpStream::connect(&cfg.addr).await.map_err(ConsumerError::ConnErr)?;
         let commit_offset = cfg.base_offset;
-        Self {
+        Ok(Self {
             high_watermark: Arc::new(Mutex::new(0)),
             commit_offset: Arc::new(Mutex::new(commit_offset)),
             stream: tokio::sync::Mutex::new(stream),
             tx,
             cfg,
-        }
+        })
     }
 
+    // Loop used to update 2 things:
+    // 1. Number of partitions
+    // 2. Leader for each partition
+    //
+    // Leader is needed because in kafka reads and writes are always performed on the leader.
+    // Partitions should all be loaded, even if there's filtering happening to single partition (debugging).
     async fn run_metadata_loop(&self) {
         let mut ticker = time::interval(Duration::from_secs(self.cfg.metadata_refresh_timer_s));
         loop {
