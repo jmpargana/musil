@@ -41,8 +41,8 @@ pub async fn request_metadata(stream: &mut TcpStream) -> Result<MetadataResponse
         .await
         .map_err(RequestError::IoErr)?;
 
-    let response_frame = Frame::decode_response(&buf.freeze(), response_size)
-        .map_err(|_| RequestError::ParseErr)?;
+    let response_frame =
+        Frame::decode_response(&buf.freeze(), response_size).map_err(|_| RequestError::ParseErr)?;
 
     response_frame
         .body
@@ -53,20 +53,22 @@ pub async fn request_metadata(stream: &mut TcpStream) -> Result<MetadataResponse
 pub async fn request_fetch(
     stream: &mut TcpStream,
     topic: String,
-    partition: u32,
-    fetch_offset: u64,
+    partitions: Vec<(u16, u64)>, // index + offset
 ) -> Result<FetchResponse, RequestError> {
     let body = FetchRequest {
         replica_id: -1,
         max_bytes: 4096,
         topics: vec![FetchTopic {
             topic,
-            partitions: vec![FetchPartition {
-                partition,
-                fetch_offset,
-                partition_max_bytes: 4096,
-                high_watermark: 0,
-            }],
+            partitions: partitions
+                .into_iter()
+                .map(|(p, fetch_offset)| FetchPartition {
+                    partition: p as u32,
+                    fetch_offset,
+                    partition_max_bytes: 4096,
+                    high_watermark: 0,
+                })
+                .collect(),
         }],
     };
 
@@ -80,10 +82,13 @@ pub async fn request_fetch(
     let response_size = stream.read_u32().await.map_err(RequestError::IoErr)?;
     let mut buf = BytesMut::zeroed(response_size as usize);
 
-    stream.read_exact(&mut buf).await.map_err(RequestError::IoErr)?;
+    stream
+        .read_exact(&mut buf)
+        .await
+        .map_err(RequestError::IoErr)?;
 
-    let response_frame = Frame::decode_response(&buf.freeze(), response_size)
-        .map_err(|_| RequestError::ParseErr)?;
+    let response_frame =
+        Frame::decode_response(&buf.freeze(), response_size).map_err(|_| RequestError::ParseErr)?;
 
     let FrameBody::FetchResponse(response) = response_frame.body else {
         panic!("expected FetchResponse")

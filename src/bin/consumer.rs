@@ -12,7 +12,7 @@ struct Args {
     topic: String,
 
     #[arg(short, long)]
-    partition: u16,
+    partition: Option<u16>,
 
     #[arg(short, long)]
     offset: u64,

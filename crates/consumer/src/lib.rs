@@ -4,14 +4,20 @@ use std::{
     time::Duration,
 };
 
+use dashmap::DashMap;
 use derive_builder::Builder;
-use network::requests::{request_fetch, request_metadata};
+use network::{
+    protocol::metadata::PartitionMetadata,
+    requests::{RequestError, request_fetch, request_metadata},
+};
 use proto::{record::Record, record_batch::RecordBatch};
 use tokio::{net::TcpStream, sync::mpsc, time};
 
 #[derive(Debug)]
 pub enum ConsumerError {
     ConnErr(std::io::Error),
+    ReqErr(RequestError),
+    TopicNotFound,
 }
 
 pub struct ConsumerRecord {
@@ -57,7 +63,11 @@ pub struct ConsumerConfig {
     #[builder(default = 60)]
     pub metadata_refresh_timer_s: u64,
     pub topic: String,
-    pub partition: u16,
+    pub partition: Option<u16>,
+
+    // Not passed when partition also not passed. Defaults to `--from-beginning` and loads and observes
+    // All partitions concurrently
+    #[builder(default = 0)]
     pub base_offset: u64,
     pub addr: String,
 }
@@ -86,12 +96,29 @@ impl Consumer {
     }
 }
 
+// TODO: need to add leader_id, replicas, etc.
+#[derive(Default)]
+struct ConsumerPartitionState {
+    high_watermark: u64,
+    commit_offset: u64,
+}
+
+impl ConsumerPartitionState {
+    pub fn from_offset(fetch_offset: u64) -> Self {
+        Self {
+            high_watermark: 0,
+            commit_offset: fetch_offset,
+        }
+    }
+}
+
+type ConsumerPartitions = DashMap<u16, ConsumerPartitionState>;
+
 // In future, metadata manager and fetch menaager should be split into different structs.
 // Also, we'll need consumer group manager (once we have replication).
 // Finally, for persistent consumers, we also need commit_offsets at broker level, so consumers restart from correct place.
 struct ConsumerActor {
-    high_watermark: Arc<Mutex<u64>>,
-    commit_offset: Arc<Mutex<u64>>,
+    partitions: ConsumerPartitions,
     // Mutex needed here so there's no conflict in stream
     stream: tokio::sync::Mutex<TcpStream>,
     tx: mpsc::Sender<ConsumerRecord>,
@@ -99,16 +126,41 @@ struct ConsumerActor {
 }
 
 impl ConsumerActor {
-    async fn new(cfg: ConsumerConfig, tx: mpsc::Sender<ConsumerRecord>) -> Result<Self, ConsumerError> {
-        let stream = TcpStream::connect(&cfg.addr).await.map_err(ConsumerError::ConnErr)?;
-        let commit_offset = cfg.base_offset;
+    async fn new(
+        cfg: ConsumerConfig,
+        tx: mpsc::Sender<ConsumerRecord>,
+    ) -> Result<Self, ConsumerError> {
+        let mut stream = TcpStream::connect(&cfg.addr)
+            .await
+            .map_err(ConsumerError::ConnErr)?;
+
+        let partitions = DashMap::new();
+
+        if cfg.partition.is_none() {
+            let _partitions = do_request_metadata(&cfg.topic, &mut stream).await?;
+            _partitions.iter().for_each(|p| {
+                partitions.insert(p.partition_index as u16, Default::default());
+            });
+        } else {
+            partitions.insert(
+                cfg.partition.expect("impossible"),
+                ConsumerPartitionState::from_offset(cfg.base_offset),
+            );
+        }
         Ok(Self {
-            high_watermark: Arc::new(Mutex::new(0)),
-            commit_offset: Arc::new(Mutex::new(commit_offset)),
+            partitions,
             stream: tokio::sync::Mutex::new(stream),
             tx,
             cfg,
         })
+    }
+
+    async fn single_request_metadata(&self) {
+        let mut stream = self.stream.lock().await;
+        // not doing anything for now
+        // FIXME: when something will be done, the request shouldn't override single partition if in config.
+        // maybe the best approach is to check self.cfg and only update leader_id of single observed replica.
+        let _ = do_request_metadata(&self.cfg.topic, &mut stream);
     }
 
     // Loop used to update 2 things:
@@ -121,52 +173,42 @@ impl ConsumerActor {
         let mut ticker = time::interval(Duration::from_secs(self.cfg.metadata_refresh_timer_s));
         loop {
             ticker.tick().await;
-            let mut stream = self.stream.lock().await;
-            if let Ok(metadata) = request_metadata(&mut stream).await {
-                // This was my wrong assumption here. The metadata only adds new partitions but doesn't have high_watermark.
-                for topic in &metadata.topics {
-                    if topic.name == self.cfg.topic {
-                        for partition in &topic.partitions {
-                            if partition.partition_index == self.cfg.partition as i32 {
-                                // TODO: update list of partitions when serving multiple ones.
-                                let _ = partition;
-                            }
-                        }
-                    }
-                }
-            }
+            self.single_request_metadata().await;
         }
     }
 
+    // This function needs some love.
+    // I'm still trying to figure out how to continuously receive commits without polling.
+    // If metadata doesn't return high watermark, there must be another ApiKey which does,
+    // problem is it's still a form of polling...
     async fn run_offset_sync_loop(&self) {
         loop {
-            let commit = *self.commit_offset.lock().unwrap();
-
             let mut stream = self.stream.lock().await;
-            match request_fetch(
-                &mut stream,
-                self.cfg.topic.clone(),
-                self.cfg.partition as u32,
-                commit,
-            )
-            .await
-            {
+            let partitions = self
+                .partitions
+                .iter()
+                .map(|p| (*p.key(), p.commit_offset))
+                .collect();
+            match request_fetch(&mut stream, self.cfg.topic.clone(), partitions).await {
                 Ok(fetch_response) => {
-                    let mut records_received = 0u64;
+                    let mut total_records_received = 0;
                     for t in &fetch_response.responses {
                         for p in &t.partitions {
-                            // HW comes from fetch response, not metadata.
-                            {
-                                let mut hw = self.high_watermark.lock().unwrap();
-                                if p.high_watermark > *hw {
-                                    *hw = p.high_watermark;
-                                }
+                            let mut records_received = 0u64;
+                            let mut state = self
+                                .partitions
+                                .get_mut(&(p.partition_index as u16))
+                                // TODO: return Result? Probably not possible since this is a loop
+                                .expect("this means metadata broker above");
+
+                            if p.high_watermark > state.high_watermark {
+                                state.high_watermark = p.high_watermark;
                             }
 
                             for b in p.records.clone() {
                                 let records = batch_into_consumer_records(
                                     t.topic.clone(),
-                                    self.cfg.partition,
+                                    p.partition_index as u16,
                                     b,
                                 );
                                 records_received += records.len() as u64;
@@ -174,25 +216,40 @@ impl ConsumerActor {
                                     let _ = self.tx.send(r).await;
                                 }
                             }
+
+                            state.commit_offset += records_received;
+                            total_records_received += records_received;
                         }
                     }
 
-                    {
-                        let mut co = self.commit_offset.lock().unwrap();
-                        *co += records_received;
-                    }
-
-                    // Broker returned nothing — we're caught up, back off before polling again.
-                    if records_received == 0 {
+                    if total_records_received == 0 {
                         drop(stream);
-                        time::sleep(Duration::from_millis(100)).await;
+                        // FIXME: this is way too offen
+                        time::sleep(Duration::from_millis(1000)).await;
                     }
                 }
                 Err(_) => {
                     drop(stream);
-                    time::sleep(Duration::from_millis(500)).await;
+                    time::sleep(Duration::from_millis(5000)).await;
                 }
             }
         }
     }
+}
+
+async fn do_request_metadata(
+    topic: &str,
+    stream: &mut TcpStream,
+) -> Result<Vec<PartitionMetadata>, ConsumerError> {
+    request_metadata(stream)
+        .await
+        .map_err(|e| ConsumerError::ReqErr(e))
+        .and_then(|metadata| {
+            metadata
+                .topics
+                .into_iter()
+                .find(|t| t.name == topic)
+                .ok_or(ConsumerError::TopicNotFound)
+                .and_then(|t| Ok(t.partitions))
+        })
 }
