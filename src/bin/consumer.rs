@@ -14,6 +14,7 @@ struct Args {
     #[arg(short, long)]
     partition: Option<u16>,
 
+    // FIXME: this needs to be optional
     #[arg(short, long)]
     offset: u64,
 

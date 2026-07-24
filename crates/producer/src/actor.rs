@@ -22,6 +22,9 @@ use crate::{
     command::ProducerCommand, config::ProducerConfig, error::ProducerError, payload::PublishPayload,
 };
 
+// TODO: refactor this
+const MURMUR2_SEED: u32 = 0x9747b28c;
+
 // `ProducerActor` should never be created from scratch. Instead, it's created and handled by the [`Producer`].
 // It's responsible for running a batching loop on a single thread, which aggregates records until either of
 // the two are full:
@@ -174,7 +177,7 @@ impl ProducerActor {
 
         let idx = match payload.key {
             Some(ref key) => {
-                (murmur2(key.as_bytes(), rand::random()) as usize % topic_metadata.partitions.len())
+                (murmur2(key.as_bytes(), MURMUR2_SEED) as usize % topic_metadata.partitions.len())
                     as u16
             }
             None => rand::random_range(0..topic_metadata.partitions.len()) as u16,
