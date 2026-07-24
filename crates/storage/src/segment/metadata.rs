@@ -3,9 +3,7 @@ use std::{fs::File, os::unix::fs::FileExt, sync::Arc};
 use memmap::{Mmap, MmapOptions};
 
 use proto::{
-    fetch::request::fetch_partition::FetchPartition,
-    record::Record,
-    record_batch::RecordBatch,
+    fetch::request::fetch_partition::FetchPartition, record::Record, record_batch::RecordBatch,
 };
 
 const INDEX_ENTRY_SIZE: usize = 16;
@@ -58,7 +56,10 @@ impl SegmentView {
     pub fn fetch(&self, req: FetchPartition) -> Vec<RecordBatch> {
         let start = match self.find_physical_position(req.fetch_offset) {
             Some(idx) => idx,
-            None if self.size > 0 => IndexEntry { offset: self.base_offset, pos: 0 },
+            None if self.size > 0 => IndexEntry {
+                offset: self.base_offset,
+                pos: 0,
+            },
             None => return vec![],
         };
 
@@ -141,7 +142,7 @@ impl SegmentView {
             let mid = lo + (hi - lo) / 2;
             let base = mid * INDEX_ENTRY_SIZE;
 
-            let offset = u64::from_le_bytes(self.index[base..base + 8].try_into().unwrap());
+            let offset = u64::from_be_bytes(self.index[base..base + 8].try_into().unwrap());
 
             if offset <= target_offset {
                 lo = mid + 1;
@@ -160,8 +161,8 @@ impl SegmentView {
         let entry = lo - 1;
         let base = entry * INDEX_ENTRY_SIZE;
 
-        let offset = u64::from_le_bytes(self.index[base..base + 8].try_into().unwrap());
-        let pos = u64::from_le_bytes(self.index[base + 8..base + 16].try_into().unwrap());
+        let offset = u64::from_be_bytes(self.index[base..base + 8].try_into().unwrap());
+        let pos = u64::from_be_bytes(self.index[base + 8..base + 16].try_into().unwrap());
 
         Some(IndexEntry { offset, pos })
     }
@@ -231,9 +232,9 @@ mod tests {
     use super::*;
     use crate::segment::config::SegmentConfigBuilder;
     use crate::segment::log_segment::LogSegment;
+    use bytes::Bytes;
     use proto::record::Record;
     use proto::record_batch::RecordBatch;
-    use bytes::Bytes;
 
     fn make_seg(dir: &tempdir::TempDir, base_offset: u64) -> LogSegment {
         let cfg = SegmentConfigBuilder::default()

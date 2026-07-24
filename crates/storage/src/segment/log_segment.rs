@@ -17,6 +17,7 @@ pub struct LogSegment {
 
     log_file: File,
     index_file: memmap::MmapMut,
+    time_index_file: memmap::MmapMut,
 
     index_write_pos: usize,
 
@@ -35,6 +36,7 @@ impl LogSegment {
 
         let log_path = base_path.join(format!("{:020}.log", opts.base_offset));
         let index_path = base_path.join(format!("{:020}.index", opts.base_offset));
+        let time_index_path = base_path.join(format!("{:020}.timeindex", opts.base_offset));
 
         let log_file = OpenOptions::new()
             .read(true)
@@ -50,14 +52,27 @@ impl LogSegment {
             .truncate(true)
             .open(index_path)?;
 
+        let time_index_file_handle = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(time_index_path)?;
+
         let max_entries = opts.segment_bytes / opts.index_interval_bytes + 1;
         let index_size = max_entries * INDEX_ENTRY_SIZE;
 
         index_file_handle.set_len(index_size as u64)?;
+        time_index_file_handle.set_len(index_size as u64)?;
         let index_file = unsafe {
             MmapOptions::new()
                 .len(index_size)
                 .map_mut(&index_file_handle)?
+        };
+        let time_index_file = unsafe {
+            MmapOptions::new()
+                .len(index_size)
+                .map_mut(&time_index_file_handle)?
         };
 
         let segment = Arc::new(SegmentView::new(
@@ -70,6 +85,7 @@ impl LogSegment {
             segment,
             log_file,
             index_file,
+            time_index_file,
             index_write_pos: 0,
             index_count: 0,
             size: 0,
@@ -83,10 +99,15 @@ impl LogSegment {
 
         let log_path = base_path.join(format!("{:020}.log", opts.base_offset));
         let index_path = base_path.join(format!("{:020}.index", opts.base_offset));
+        let time_index_path = base_path.join(format!("{:020}.timeindex", opts.base_offset));
 
         let log_file = OpenOptions::new().read(true).write(true).open(log_path)?;
 
         let index_file_handle = OpenOptions::new().read(true).write(true).open(index_path)?;
+        let time_index_file_handle = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(time_index_path)?;
 
         let existing_size = log_file.metadata()?.len() as usize;
 
@@ -97,6 +118,11 @@ impl LogSegment {
             MmapOptions::new()
                 .len(index_size)
                 .map_mut(&index_file_handle)?
+        };
+        let time_index_file = unsafe {
+            MmapOptions::new()
+                .len(index_size)
+                .map_mut(&time_index_file_handle)?
         };
 
         let mut index_count = 0;
@@ -124,6 +150,7 @@ impl LogSegment {
             segment,
             log_file,
             index_file,
+            time_index_file,
             index_write_pos,
             index_count,
             size: existing_size,
@@ -145,8 +172,13 @@ impl LogSegment {
         {
             let pos = self.index_write_pos;
 
-            self.index_file[pos..pos + 8].copy_from_slice(&batch.base_offset.to_le_bytes());
-            self.index_file[pos + 8..pos + 16].copy_from_slice(&log_pos.to_le_bytes());
+            self.index_file[pos..pos + 8].copy_from_slice(&batch.base_offset.to_be_bytes());
+            self.index_file[pos + 8..pos + 16].copy_from_slice(&log_pos.to_be_bytes());
+
+            // FIXME: update this after having full record batch message format: https://kafka.apache.org/43/implementation/message-format/
+            self.time_index_file[pos..pos + 8].copy_from_slice(&batch.base_offset.to_be_bytes());
+            self.time_index_file[pos + 8..pos + 16]
+                .copy_from_slice(&batch.base_offset.to_be_bytes());
 
             self.index_write_pos += INDEX_ENTRY_SIZE;
             self.index_count += 1;
