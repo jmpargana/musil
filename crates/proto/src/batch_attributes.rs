@@ -1,5 +1,5 @@
 #[derive(Debug, Clone)]
-pub struct BatchAttributes(u16);
+pub struct BatchAttributes(pub u16);
 
 /**
  * Source: https://kafka.apache.org/43/implementation/message-format/

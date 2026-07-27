@@ -1,8 +1,11 @@
 use core::fmt;
 use std::{
     io::{self, Write},
+    ops::Deref,
     time::UNIX_EPOCH,
 };
+
+use bytes::{Buf, BufMut};
 
 use crate::record_header::RecordHeader;
 
@@ -24,6 +27,8 @@ Headers => [Header]
 pub struct Record {
     pub length: u32,
     pub attributes: u8, // TODO: bitmap
+    // Initially this field is an actual timestamp. Later it turns into a delta
+    // from the batch start (aka. base).
     pub timestamp_delta: u64,
     pub offset_delta: u64,
     pub key: Vec<u8>,
@@ -33,96 +38,90 @@ pub struct Record {
 
 impl Record {
     pub fn new(offset_delta: u64, key: &[u8], value: &[u8]) -> Self {
-        Self {
+        let mut record = Self {
             offset_delta,
-            timestamp: UNIX_EPOCH.elapsed().unwrap().as_secs(),
+            timestamp_delta: u64::from(UNIX_EPOCH.elapsed().unwrap().as_millis() as u64),
             key: key.to_vec(),
             value: value.to_vec(),
+            length: 0,
+            attributes: 0,
+            headers: vec![],
+        };
+        record.length = record.get_size();
+        record
+    }
+
+    pub(crate) fn get_size(&self) -> u32 {
+        4 + 1
+            + 8
+            + 8
+            + 4
+            + self.key.len() as u32
+            + 4
+            + self.value.len() as u32
+            + 4
+            + self.headers.iter().map(|h| h.get_size()).sum::<u32>()
+    }
+
+    // TODO: actually nothing is really throwing here (for now).
+    // Maybe I could simplify the error chaining.
+    pub fn decode<B: Buf>(buf: &mut B) -> io::Result<Self> {
+        let length = buf.get_u32();
+        let attributes = buf.get_u8();
+        let timestamp_delta = buf.get_u64();
+        let offset_delta = buf.get_u64();
+        let key_length = buf.get_u32() as usize;
+        let key = buf.copy_to_bytes(key_length).deref().to_vec();
+        let value_length = buf.get_u32() as usize;
+        let value = buf.copy_to_bytes(value_length).deref().to_vec();
+
+        let headers_size = buf.get_u32() as usize;
+        let mut headers = Vec::with_capacity(headers_size);
+        for _ in 0..headers_size {
+            let header = RecordHeader::decode(buf)?;
+            headers.push(header);
         }
+        Ok(Self {
+            length,
+            attributes,
+            timestamp_delta,
+            offset_delta,
+            key,
+            value,
+            headers,
+        })
     }
 
-    pub fn encode(&self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(1 << 12);
-        self.write_to(&mut buf).unwrap();
-        buf
-    }
+    // TODO: should return Result?
+    pub fn encode<B: BufMut>(&self, buf: &mut B) {
+        buf.put_u32(self.length);
+        buf.put_u8(self.attributes);
+        buf.put_u64(self.timestamp_delta);
+        buf.put_u64(self.offset_delta);
+        buf.put_u32(self.key.len() as u32);
+        buf.put_slice(&self.key);
+        buf.put_u32(self.value.len() as u32);
+        buf.put_slice(&self.value);
 
-    pub fn decode(buf: &[u8]) -> io::Result<Record> {
-        Record::decode_raw(buf).map(|it| it.0)
-    }
-
-    pub fn decode_raw(buf: &[u8]) -> io::Result<(Record, usize)> {
-        let mut pos = 0;
-
-        let offset_delta = u64::from_be_bytes(buf[pos..pos + 8].try_into().unwrap());
-        pos += 8;
-
-        let timestamp = u64::from_be_bytes(buf[pos..pos + 8].try_into().unwrap());
-        pos += 8;
-
-        let key_size = u32::from_be_bytes(buf[pos..pos + 4].try_into().unwrap()) as usize;
-        pos += 4;
-
-        let key = buf[pos..pos + key_size].to_vec();
-        pos += key_size;
-
-        let value_size = u32::from_be_bytes(buf[pos..pos + 4].try_into().unwrap()) as usize;
-        pos += 4;
-
-        let value = buf[pos..pos + value_size].to_vec();
-        pos += value_size;
-
-        Ok((
-            Record {
-                offset_delta,
-                timestamp,
-                key,
-                value,
-            },
-            pos,
-        ))
-    }
-
-    fn write_to<W: Write>(&self, writer: &mut W) -> io::Result<usize> {
-        let mut size: usize = 0;
-
-        let temp = &self.offset_delta.to_be_bytes();
-        writer.write_all(temp)?;
-        size += temp.len();
-
-        let temp = &self.timestamp.to_be_bytes();
-        writer.write_all(temp)?;
-        size += temp.len();
-
-        let temp = &(self.key.len() as u32).to_be_bytes();
-        writer.write_all(temp)?;
-        size += temp.len();
-        writer.write_all(&self.key)?;
-        size += self.key.len();
-
-        let temp = &(self.value.len() as u32).to_be_bytes();
-        writer.write_all(temp)?;
-        size += temp.len();
-        writer.write_all(&self.value)?;
-        size += self.value.len();
-
-        Ok(size)
-    }
-
-    pub(crate) fn get_size(&self) -> usize {
-        8 + 8 + 4 + 4 + self.key.len() + self.value.len()
+        buf.put_u32(self.headers.len() as u32);
+        for header in self.headers.iter() {
+            header.encode(buf);
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use bytes::BytesMut;
+
     use crate::record::Record;
 
     #[test]
     fn decode_encode_e2e() {
         let record = Record::new(10, b"hello", b"world");
-        let bytes = record.encode();
-        let decoded = Record::decode(&bytes).unwrap();
+        let mut bytes = BytesMut::new();
+        record.encode(&mut bytes);
+        let decoded = Record::decode(&mut bytes).unwrap();
         assert_eq!(record, decoded);
     }
 }

@@ -26,11 +26,11 @@ pub struct RecordBatch {
 
 impl From<RecordBatch> for Vec<Record> {
     fn from(value: RecordBatch) -> Self {
+        let mut records = value.records.clone(); // This clone is cheap, but it might not be the ideal call
         let mut ans = Vec::with_capacity(value.records_count as usize);
-        let mut pos = 0;
         for _ in 0..value.records_count {
-            let record = Record::decode(&value.records[pos..]).unwrap();
-            pos += record.get_size();
+            // FIXME: add error handler
+            let record = Record::decode(&mut records).unwrap();
             ans.push(record);
         }
         ans
@@ -43,18 +43,34 @@ impl From<Vec<Record>> for RecordBatch {
         let base_offset = 0;
         let records_count = value.len() as u32;
 
-        let records: Bytes = value
-            .into_iter()
-            .enumerate()
-            .flat_map(|(pos, mut record)| {
-                record.offset_delta = pos as u64;
-                record.encode()
-            })
-            .collect();
+        let mut buf = BytesMut::new();
+        let mut base_timestamp = u64::MAX;
+        let mut max_timestamp = 0;
+
+        for r in value.iter() {
+            if r.timestamp_delta < base_timestamp {
+                base_timestamp = r.timestamp_delta;
+            }
+            if r.timestamp_delta > max_timestamp {
+                max_timestamp = r.timestamp_delta;
+            }
+        }
+
+        for (i, mut r) in value.into_iter().enumerate() {
+            // TODO: change timestamp as well based on base
+            r.offset_delta = i as u64;
+            r.timestamp_delta = r.timestamp_delta - base_timestamp;
+            r.encode(&mut buf);
+        }
+
+        let records = buf.freeze();
+        // FIXME: compress with gzip
 
         let crc = crc_fast::crc32_iscsi(&records);
 
-        let batch_length = records.len() as u32 + 4;
+        // includes batch_length field.
+        // TODO: find out if this breaks compatibility
+        let batch_length = records.len() as u32 + 4 + 4 + 2 + 8 + 8 + 8 + 4 + 2 + 4 + 1 + 4 + 4 
 
         RecordBatch {
             base_offset,
@@ -62,6 +78,15 @@ impl From<Vec<Record>> for RecordBatch {
             crc,
             records_count,
             records,
+            partition_leader_epoch: 0,
+            magic: 2,                       // version
+            attributes: BatchAttributes(0), // default gzip compression only for now
+            last_offset_delta: records_count as i32 - 1,
+            base_timestamp,
+            max_timestamp,
+            producer_id: 0, // TODO: ignoring for now
+            producer_epoch: 0,
+            base_sequence: 0, // FIXME: this will be needed when splitting in chunks (like TCP)
         }
     }
 }

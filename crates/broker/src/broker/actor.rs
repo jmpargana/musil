@@ -1,16 +1,21 @@
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use core::time;
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Instant, SystemTime, UNIX_EPOCH},
+};
 
 use arc_swap::ArcSwap;
 use bytes::Bytes;
 use tokio::sync::mpsc;
 
-use storage::partition::{config::PartitionConfigBuilder, handle::PartitionHandle};
 use network::protocol::{
     error_codes::ErrorCode,
     metadata::{CreateTopicResponse, TopicResponse},
     produce::acks::Acks,
 };
 use proto::{record::Record, record_batch::RecordBatch};
+use storage::partition::{config::PartitionConfigBuilder, handle::PartitionHandle};
 
 use crate::broker::{
     command::MetadataCommand,
@@ -25,23 +30,8 @@ pub struct MetadataActor {
     handle: Arc<PartitionHandle>,
 }
 
-fn make_batch(record: Record) -> RecordBatch {
-    let encoded = record.encode();
-    RecordBatch {
-        base_offset: 0,
-        batch_length: 4 + encoded.len() as u32,
-        records_count: 1,
-        records: Bytes::from(encoded),
-    }
-}
-
 fn metadata_batch(metadata_record: MetadataRecord, timestamp: u64) -> RecordBatch {
-    make_batch(Record {
-        offset_delta: 0,
-        timestamp,
-        key: vec![],
-        value: metadata_record.encode(),
-    })
+    vec![Record::new(0, b"", &metadata_record.encode())].into()
 }
 
 impl MetadataActor {
@@ -58,13 +48,17 @@ impl MetadataActor {
 
         let segment_batches = {
             let state = handle.state.load_full();
-            state.segments.first().map(|s| s.fetch_all()).unwrap_or_default()
+            state
+                .segments
+                .first()
+                .map(|s| s.fetch_all())
+                .unwrap_or_default()
         };
 
         let mut topics: HashMap<String, (TopicRecord, Vec<PartitionRecord>)> = HashMap::new();
 
-        for batch in segment_batches {
-            let Ok(record) = Record::decode(&batch.records) else {
+        for mut batch in segment_batches {
+            let Ok(record) = Record::decode(&mut batch.records) else {
                 continue;
             };
             let Some(metadata_record) = MetadataRecord::decode(&record.value) else {
@@ -72,7 +66,9 @@ impl MetadataActor {
             };
             match metadata_record {
                 MetadataRecord::Topic(t) => {
-                    topics.entry(t.name.clone()).or_insert_with(|| (t, Vec::new()));
+                    topics
+                        .entry(t.name.clone())
+                        .or_insert_with(|| (t, Vec::new()));
                 }
                 MetadataRecord::Partition(p) => {
                     if let Some(entry) = topics.get_mut(&p.topic_id) {
@@ -111,7 +107,9 @@ impl MetadataActor {
                     for t in req.topics {
                         let ts = now.elapsed().as_millis() as u64;
 
-                        let topic = TopicRecord { name: t.name.clone() };
+                        let topic = TopicRecord {
+                            name: t.name.clone(),
+                        };
 
                         let partitions: Vec<PartitionRecord> = (0..t.num_partitions)
                             .map(|p| PartitionRecord {
@@ -125,7 +123,9 @@ impl MetadataActor {
                         self.handle
                             .append(
                                 metadata_batch(
-                                    MetadataRecord::Topic(TopicRecord { name: t.name.clone() }),
+                                    MetadataRecord::Topic(TopicRecord {
+                                        name: t.name.clone(),
+                                    }),
                                     ts,
                                 ),
                                 Acks::None,
