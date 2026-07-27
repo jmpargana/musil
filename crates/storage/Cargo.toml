@@ -12,6 +12,7 @@ memmap = "0.7"
 rand = "0.9"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
+crc-fast.workspace = true
 
 [dev-dependencies]
 tempdir = "0.3"

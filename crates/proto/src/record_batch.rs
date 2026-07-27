@@ -3,12 +3,23 @@ use std::{fs::File, os::unix::fs::FileExt};
 
 use bytes::{BufMut, Bytes, BytesMut};
 
-use crate::record::Record;
+use crate::{batch_attributes::BatchAttributes, record::Record};
 
+// TODO: actually some values are ints instead of uints, but I don't understand why, even for -1 representations.
 #[derive(Debug, Clone)]
 pub struct RecordBatch {
     pub base_offset: u64,
     pub batch_length: u32,
+    pub partition_leader_epoch: i32,
+    pub magic: u8,
+    pub crc: u32,
+    pub attributes: BatchAttributes,
+    pub last_offset_delta: i32,
+    pub base_timestamp: u64,
+    pub max_timestamp: u64,
+    pub producer_id: i64,
+    pub producer_epoch: i16,
+    pub base_sequence: i32,
     pub records_count: u32,
     pub records: Bytes,
 }
@@ -41,11 +52,14 @@ impl From<Vec<Record>> for RecordBatch {
             })
             .collect();
 
+        let crc = crc_fast::crc32_iscsi(&records);
+
         let batch_length = records.len() as u32 + 4;
 
         RecordBatch {
             base_offset,
             batch_length,
+            crc,
             records_count,
             records,
         }
@@ -53,6 +67,10 @@ impl From<Vec<Record>> for RecordBatch {
 }
 
 impl RecordBatch {
+    pub fn checksum(&self) -> bool {
+        crc_fast::crc32_iscsi(&self.records) == self.crc
+    }
+
     pub fn get_size(&self) -> u32 {
         8 + 4 + self.batch_length
     }

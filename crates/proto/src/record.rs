@@ -4,12 +4,31 @@ use std::{
     time::UNIX_EPOCH,
 };
 
+use crate::record_header::RecordHeader;
+
+/**
+ * Source: https://kafka.apache.org/43/implementation/message-format/
+length: varint
+attributes: int8
+    bit 0~7: unused
+timestampDelta: varlong
+offsetDelta: varint
+keyLength: varint
+key: byte[]
+valueLength: varint
+value: byte[]
+headersCount: varint
+Headers => [Header]
+ */
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Record {
+    pub length: u32,
+    pub attributes: u8, // TODO: bitmap
+    pub timestamp_delta: u64,
     pub offset_delta: u64,
-    pub timestamp: u64,
     pub key: Vec<u8>,
     pub value: Vec<u8>,
+    pub headers: Vec<RecordHeader>,
 }
 
 impl Record {
