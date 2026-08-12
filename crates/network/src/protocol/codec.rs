@@ -6,8 +6,7 @@ use crate::protocol::{
     Frame,
     fetch::{
         request::{
-            fetch_partition::FetchPartition, fetch_request::FetchRequest,
-            fetch_topic::FetchTopic,
+            fetch_partition::FetchPartition, fetch_request::FetchRequest, fetch_topic::FetchTopic,
         },
         response::{
             fetch_response::FetchResponse, partition_response::PartitionResponse,
@@ -16,9 +15,9 @@ use crate::protocol::{
     },
     header::{ApiKey, RequestHeader},
     metadata::{
-        BrokerMetadata, CreateTopicRequest, CreateTopicResponse, MetadataRequest,
-        MetadataResponse, PartitionMetadata, TopicMetadata, TopicPartitonAssignment,
-        TopicRequest, TopicResponse as CreateTopicTopicResponse,
+        BrokerMetadata, CreateTopicRequest, CreateTopicResponse, MetadataRequest, MetadataResponse,
+        PartitionMetadata, TopicMetadata, TopicPartitonAssignment, TopicRequest,
+        TopicResponse as CreateTopicTopicResponse,
     },
     produce::{
         request::{
@@ -32,7 +31,7 @@ use crate::protocol::{
         },
     },
 };
-use proto::record_batch::RecordBatch;
+use proto::{error::ProtoError, record_batch::RecordBatch};
 
 use super::{body::FrameBody, error_codes::ErrorCode};
 
@@ -44,6 +43,7 @@ pub enum ParseError {
     InvalidApiKey,
     InvalidAck,
     InvalidClientId,
+    InvalidBatch(ProtoError),
 }
 
 impl RequestDecoder {
@@ -83,7 +83,10 @@ impl RequestDecoder {
 
     fn parse_produce(&self, buf: &mut Bytes) -> Result<FrameBody, ParseError> {
         let transactional_id = buf.get_u64();
-        let acks = buf.get_u32().try_into().map_err(|_| ParseError::InvalidAck)?;
+        let acks = buf
+            .get_u32()
+            .try_into()
+            .map_err(|_| ParseError::InvalidAck)?;
         let timeout = Duration::from_millis(buf.get_u64());
 
         let mut topics = Vec::new();
@@ -97,15 +100,23 @@ impl RequestDecoder {
             let mut partitions = Vec::new();
             for _ in 0..partition_length {
                 let partition_id = buf.get_u16();
-                let batch_len = buf.get_u32() as usize;
-                let batch_bytes = buf.split_to(batch_len);
-                let record_batch = RecordBatch::decode(&batch_bytes, 0);
-                partitions.push(ProducePartition { index: partition_id, records: record_batch });
+                let record_batch =
+                    RecordBatch::decode(buf.clone()).map_err(ParseError::InvalidBatch)?;
+
+                partitions.push(ProducePartition {
+                    index: partition_id,
+                    records: record_batch,
+                });
             }
             topics.push(ProduceTopic { topic, partitions });
         }
 
-        Ok(FrameBody::Produce(ProduceRequest { transactional_id, acks, timeout, topics }))
+        Ok(FrameBody::Produce(ProduceRequest {
+            transactional_id,
+            acks,
+            timeout,
+            topics,
+        }))
     }
 
     fn parse_fetch(&self, buf: &mut Bytes) -> Result<FrameBody, ParseError> {
@@ -126,11 +137,20 @@ impl RequestDecoder {
                 let fetch_offset = buf.get_u64();
                 let partition_max_bytes = buf.get_u32();
                 let high_watermark = buf.get_u64();
-                partitions.push(FetchPartition { partition, fetch_offset, partition_max_bytes, high_watermark });
+                partitions.push(FetchPartition {
+                    partition,
+                    fetch_offset,
+                    partition_max_bytes,
+                    high_watermark,
+                });
             }
             topics.push(FetchTopic { topic, partitions });
         }
-        Ok(FrameBody::Fetch(FetchRequest { replica_id, max_bytes, topics }))
+        Ok(FrameBody::Fetch(FetchRequest {
+            replica_id,
+            max_bytes,
+            topics,
+        }))
     }
 
     fn parse_metadata(&self, buf: &mut Bytes) -> Result<FrameBody, ParseError> {
@@ -142,7 +162,10 @@ impl RequestDecoder {
             topics.push(String::from_utf8_lossy(&topic).to_string());
         }
         let allow_auto_topic_creation = buf.get_u8() != 0;
-        Ok(FrameBody::Metadata(MetadataRequest { allow_auto_topic_creation, topics }))
+        Ok(FrameBody::Metadata(MetadataRequest {
+            allow_auto_topic_creation,
+            topics,
+        }))
     }
 
     fn parse_create_topics(&self, buf: &mut Bytes) -> Result<FrameBody, ParseError> {
@@ -158,13 +181,25 @@ impl RequestDecoder {
             for _ in 0..assignments_count {
                 let partition_index = buf.get_i32();
                 let broker_ids = buf.get_i32();
-                assignments.push(TopicPartitonAssignment { partition_index, broker_ids });
+                assignments.push(TopicPartitonAssignment {
+                    partition_index,
+                    broker_ids,
+                });
             }
-            topics.push(TopicRequest { name, num_partitions, replication_factor, assignments });
+            topics.push(TopicRequest {
+                name,
+                num_partitions,
+                replication_factor,
+                assignments,
+            });
         }
         let timeout_ms = buf.get_u32();
         let validate_only = buf.get_u8() != 0;
-        Ok(FrameBody::Topic(CreateTopicRequest { topics, timeout_ms, validate_only }))
+        Ok(FrameBody::Topic(CreateTopicRequest {
+            topics,
+            timeout_ms,
+            validate_only,
+        }))
     }
 }
 
@@ -189,7 +224,12 @@ impl ResponseDecoder {
 
         let api_key: ApiKey = api_key.try_into().map_err(|_| ParseError::InvalidApiKey)?;
 
-        let header = RequestHeader { api_key, api_version, correlation_id, client_id };
+        let header = RequestHeader {
+            api_key,
+            api_version,
+            correlation_id,
+            client_id,
+        };
 
         let body = match api_key {
             ApiKey::Metadata => self.parse_metadata_response(buf)?,
@@ -210,30 +250,54 @@ impl ResponseDecoder {
             let host_len = buf.get_u16();
             let host = String::from_utf8_lossy(&buf.split_to(host_len as usize)).to_string();
             let port = buf.get_i32();
-            brokers.push(BrokerMetadata { node_id, host, port });
+            brokers.push(BrokerMetadata {
+                node_id,
+                host,
+                port,
+            });
         }
         let controller_id = buf.get_i32();
         let topics_count = buf.get_u32();
         let mut topics = Vec::new();
         for _ in 0..topics_count {
-            let error_code = ErrorCode::try_from(buf.get_i16()).unwrap_or(ErrorCode::UnknownServerError);
+            let error_code =
+                ErrorCode::try_from(buf.get_i16()).unwrap_or(ErrorCode::UnknownServerError);
             let name_len = buf.get_u16();
             let name = String::from_utf8_lossy(&buf.split_to(name_len as usize)).to_string();
             let partitions_count = buf.get_u32();
             let mut partitions = Vec::new();
             for _ in 0..partitions_count {
-                let p_error_code = ErrorCode::try_from(buf.get_i16()).unwrap_or(ErrorCode::UnknownServerError);
+                let p_error_code =
+                    ErrorCode::try_from(buf.get_i16()).unwrap_or(ErrorCode::UnknownServerError);
                 let partition_index = buf.get_i32();
                 let leader_id = buf.get_i32();
                 let replica_nodes = buf.get_u32();
                 let isr_nodes = buf.get_u32();
                 let offline_replicas = buf.get_u32();
-                partitions.push(PartitionMetadata { error_code: p_error_code, partition_index, leader_id, replica_nodes, isr_nodes, offline_replicas });
+                partitions.push(PartitionMetadata {
+                    error_code: p_error_code,
+                    partition_index,
+                    leader_id,
+                    replica_nodes,
+                    isr_nodes,
+                    offline_replicas,
+                });
             }
-            topics.push(TopicMetadata { error_code, name, partitions });
+            topics.push(TopicMetadata {
+                error_code,
+                name,
+                partitions,
+            });
         }
-        let error_code = ErrorCode::try_from(buf.get_i16()).unwrap_or(ErrorCode::UnknownServerError);
-        Ok(FrameBody::MetadataResponse(MetadataResponse { throttle_time_ms, brokers, controller_id, topics, error_code }))
+        let error_code =
+            ErrorCode::try_from(buf.get_i16()).unwrap_or(ErrorCode::UnknownServerError);
+        Ok(FrameBody::MetadataResponse(MetadataResponse {
+            throttle_time_ms,
+            brokers,
+            controller_id,
+            topics,
+            error_code,
+        }))
     }
 
     fn parse_produce_response(&self, buf: &mut Bytes) -> Result<FrameBody, ParseError> {
@@ -247,7 +311,8 @@ impl ResponseDecoder {
             let mut partition_responses = Vec::new();
             for _ in 0..partition_count {
                 let index = buf.get_u32();
-                let error_code = ErrorCode::try_from(buf.get_i16()).unwrap_or(ErrorCode::UnknownServerError);
+                let error_code =
+                    ErrorCode::try_from(buf.get_i16()).unwrap_or(ErrorCode::UnknownServerError);
                 let base_offset = buf.get_u64();
                 let log_append_time_ms = buf.get_u64();
                 let log_start_offset = buf.get_u64();
@@ -261,15 +326,32 @@ impl ResponseDecoder {
                 let current_leader = if has_leader {
                     let leader_id = buf.get_i32();
                     let leader_epoch = buf.get_u32();
-                    Some(CurrentLeader { leader_id, leader_epoch })
+                    Some(CurrentLeader {
+                        leader_id,
+                        leader_epoch,
+                    })
                 } else {
                     None
                 };
-                partition_responses.push(ProducePartitionResponse { index, error_code, base_offset, log_append_time_ms, log_start_offset, error_message, current_leader });
+                partition_responses.push(ProducePartitionResponse {
+                    index,
+                    error_code,
+                    base_offset,
+                    log_append_time_ms,
+                    log_start_offset,
+                    error_message,
+                    current_leader,
+                });
             }
-            responses.push(ProduceTopicResponse { topic, partition_responses });
+            responses.push(ProduceTopicResponse {
+                topic,
+                partition_responses,
+            });
         }
-        Ok(FrameBody::ProduceResponse(ProduceResponse { throttle_time_ms, responses }))
+        Ok(FrameBody::ProduceResponse(ProduceResponse {
+            throttle_time_ms,
+            responses,
+        }))
     }
 
     fn parse_fetch_response(&self, buf: &mut Bytes) -> Result<FrameBody, ParseError> {
@@ -283,7 +365,8 @@ impl ResponseDecoder {
             let mut partitions = Vec::new();
             for _ in 0..partitions_count {
                 let partition_index = buf.get_u32();
-                let error_code = ErrorCode::try_from(buf.get_i16()).unwrap_or(ErrorCode::UnknownServerError);
+                let error_code =
+                    ErrorCode::try_from(buf.get_i16()).unwrap_or(ErrorCode::UnknownServerError);
                 let high_watermark = buf.get_u64();
                 let log_start_offset = buf.get_u64();
                 let records_count = buf.get_u32();
@@ -293,13 +376,27 @@ impl ResponseDecoder {
                     let batch_length = buf.get_u32();
                     let batch_records_count = buf.get_u32();
                     let records_payload = buf.split_to((batch_length - 4) as usize);
-                    records.push(RecordBatch { base_offset, batch_length, records_count: batch_records_count, records: records_payload });
+                    records.push(RecordBatch {
+                        base_offset,
+                        batch_length,
+                        records_count: batch_records_count,
+                        records: records_payload,
+                    });
                 }
-                partitions.push(PartitionResponse { partition_index, error_code, high_watermark, log_start_offset, records });
+                partitions.push(PartitionResponse {
+                    partition_index,
+                    error_code,
+                    high_watermark,
+                    log_start_offset,
+                    records,
+                });
             }
             responses.push(TopicResponse { topic, partitions });
         }
-        Ok(FrameBody::FetchResponse(FetchResponse { throttle_time_ms, responses }))
+        Ok(FrameBody::FetchResponse(FetchResponse {
+            throttle_time_ms,
+            responses,
+        }))
     }
 
     fn parse_create_topics_response(&self, buf: &mut Bytes) -> Result<FrameBody, ParseError> {
@@ -309,13 +406,24 @@ impl ResponseDecoder {
         for _ in 0..topics_count {
             let name_len = buf.get_u16();
             let name = String::from_utf8_lossy(&buf.split_to(name_len as usize)).to_string();
-            let error_code = ErrorCode::try_from(buf.get_i16()).unwrap_or(ErrorCode::UnknownServerError);
+            let error_code =
+                ErrorCode::try_from(buf.get_i16()).unwrap_or(ErrorCode::UnknownServerError);
             let error_message_len = buf.get_u16();
-            let error_message = String::from_utf8_lossy(&buf.split_to(error_message_len as usize)).to_string();
+            let error_message =
+                String::from_utf8_lossy(&buf.split_to(error_message_len as usize)).to_string();
             let num_partitions = buf.get_i32();
             let replication_factor = buf.get_u16();
-            topics.push(CreateTopicTopicResponse { name, error_code, error_message, num_partitions, replication_factor });
+            topics.push(CreateTopicTopicResponse {
+                name,
+                error_code,
+                error_message,
+                num_partitions,
+                replication_factor,
+            });
         }
-        Ok(FrameBody::TopicResponse(CreateTopicResponse { throttle_time_ms, topics }))
+        Ok(FrameBody::TopicResponse(CreateTopicResponse {
+            throttle_time_ms,
+            topics,
+        }))
     }
 }

@@ -7,7 +7,7 @@ use std::{
 
 use bytes::{Buf, BufMut};
 
-use crate::record_header::RecordHeader;
+use crate::{record_header::RecordHeader, record_iter::RecordIter};
 
 /**
  * Source: https://kafka.apache.org/43/implementation/message-format/
@@ -51,6 +51,7 @@ impl Record {
         record
     }
 
+    // TODO: this might be fully redundant as there's already a field with that information.
     pub(crate) fn get_size(&self) -> u32 {
         4 + 1
             + 8

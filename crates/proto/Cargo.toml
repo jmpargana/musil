@@ -6,3 +6,5 @@ edition = "2024"
 [dependencies]
 bytes = "1"
 crc-fast.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true

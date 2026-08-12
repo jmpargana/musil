@@ -28,6 +28,7 @@ network = { path = "crates/network" }
 proto = { path = "crates/proto" }
 storage = { path = "crates/storage" }
 crc-fast = "1.10.0"
+tokio-stream = "0.1.19"
 
 [dependencies]
 broker = { path = "crates/broker" }
@@ -47,6 +48,7 @@ tracing-subscriber = "0.3.23"
 tracing-log = "0.2.0"
 crc-fast = "1.10.0"
 flate2 = "1.1.9"
+tokio-stream = "0.1.19"
 
 [dev-dependencies]
 tempdir = "0.3.7"

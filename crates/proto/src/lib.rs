@@ -1,7 +1,11 @@
 pub mod batch_attributes;
+pub mod batch_iter;
+pub mod error;
 pub mod error_codes;
 pub mod fetch;
 pub mod produce;
 pub mod record;
+pub mod record_Iter;
 pub mod record_batch;
 pub mod record_header;
+pub mod record_iter;

@@ -3,8 +3,10 @@ use std::{fs::File, os::unix::fs::FileExt, sync::Arc};
 use memmap::{Mmap, MmapOptions};
 
 use proto::{
+    batch_attributes::BatchAttributes, batch_iter::BatchIter, error::ProtoError,
     fetch::request::fetch_partition::FetchPartition, record::Record, record_batch::RecordBatch,
 };
+use tokio::io::AsyncSeekExt;
 
 const INDEX_ENTRY_SIZE: usize = 16;
 
@@ -39,18 +41,36 @@ impl SegmentView {
         }
     }
 
-    pub fn fetch_all(&self) -> Vec<RecordBatch> {
-        let mut buf = vec![0u8; self.size];
-        self.log.read_at(&mut buf, 0).unwrap();
+    pub fn batch_iter_from(&self, offset: u64) -> Result<BatchIter, ProtoError> {
+        let start = match self.find_physical_position(offset) {
+            Some(idx) => idx,
+            None if self.size > 0 => IndexEntry {
+                offset: self.base_offset,
+                pos: 0,
+            },
+            None => {
+                return Ok(BatchIter::empty(self.log.clone()));
+            }
+        };
 
-        let mut batches = Vec::new();
-        let mut pos = 0u64;
-        while pos + 12 <= self.size as u64 {
-            let batch = RecordBatch::decode(&buf, pos);
-            pos += 12 + batch.batch_length as u64;
-            batches.push(batch);
+        let pos = self.linear_search(offset, start).map_err(ProtoError::Io)?;
+
+        Ok(BatchIter {
+            file: self.log.clone(),
+            pos,
+        })
+    }
+
+    pub fn batches_from(&self, pos: u64) -> BatchIter {
+        BatchIter {
+            file: self.log.clone(),
+            pos,
         }
-        batches
+    }
+
+    pub fn fetch_all(&self) -> Vec<RecordBatch> {
+        // TODO: handle error
+        self.batches_from(0).map(|b| b.unwrap()).collect()
     }
 
     pub fn fetch(&self, req: FetchPartition) -> Vec<RecordBatch> {
@@ -71,13 +91,11 @@ impl SegmentView {
             return vec![];
         }
 
-        let batch = RecordBatch::decode_file(&self.log, pos);
+        let batch_iter = self.batches_from(pos);
+        let batch = batch_iter.next().unwrap().unwrap();
 
         let target_delta = req.fetch_offset.saturating_sub(batch.base_offset);
-        let mut record_iter = RecordIter {
-            bytes: &batch.records,
-            pos: 0,
-        };
+        let record_iter = batch.records_iter();
         let mut skipped_count = 0u32;
         let starting_pos = record_iter
             .find_map(|(pos, record)| {
@@ -98,6 +116,16 @@ impl SegmentView {
             batch_length: actual_batch_length,
             records_count: batch.records_count.saturating_sub(skipped_count),
             records: sliced_records,
+            partition_leader_epoch: -1,
+            magic: 2,
+            crc: todo!(),
+            attributes: BatchAttributes(0),
+            last_offset_delta: todo!(),
+            base_timestamp: todo!(),
+            max_timestamp: todo!(),
+            producer_id: -1,
+            producer_epoch: -1,
+            base_sequence: -1,
         }];
 
         let mut total_bytes = actual_batch_length;
@@ -204,27 +232,6 @@ fn read_u64_at(file: &File, pos: u64) -> std::io::Result<u64> {
     let mut buf = [0u8; 8];
     file.read_at(&mut buf, pos)?;
     Ok(u64::from_be_bytes(buf))
-}
-
-struct RecordIter<'a> {
-    bytes: &'a [u8],
-    pos: usize,
-}
-
-impl<'a> Iterator for RecordIter<'a> {
-    type Item = (usize, Record);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.pos >= self.bytes.len() {
-            return None;
-        }
-
-        let start = self.pos;
-        let (record, consumed) = Record::decode_raw(&self.bytes[self.pos..]).ok()?;
-        self.pos += consumed;
-
-        Some((start, record))
-    }
 }
 
 #[cfg(test)]
