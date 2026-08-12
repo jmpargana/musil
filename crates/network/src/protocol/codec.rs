@@ -100,8 +100,14 @@ impl RequestDecoder {
             let mut partitions = Vec::new();
             for _ in 0..partition_length {
                 let partition_id = buf.get_u16();
-                let record_batch =
-                    RecordBatch::decode(buf.clone()).map_err(ParseError::InvalidBatch)?;
+                let _batch_len = buf.get_u32();
+                let base_offset = buf.get_u64();
+                let batch_length = buf.get_u32();
+                let records_count = buf.get_u32();
+                let records_payload = buf.split_to((batch_length - 4) as usize);
+                let record_batch = RecordBatch::from_compact(
+                    base_offset, batch_length, records_count, records_payload,
+                );
 
                 partitions.push(ProducePartition {
                     index: partition_id,
@@ -376,12 +382,9 @@ impl ResponseDecoder {
                     let batch_length = buf.get_u32();
                     let batch_records_count = buf.get_u32();
                     let records_payload = buf.split_to((batch_length - 4) as usize);
-                    records.push(RecordBatch {
-                        base_offset,
-                        batch_length,
-                        records_count: batch_records_count,
-                        records: records_payload,
-                    });
+                    records.push(RecordBatch::from_compact(
+                        base_offset, batch_length, batch_records_count, records_payload,
+                    ));
                 }
                 partitions.push(PartitionResponse {
                     partition_index,

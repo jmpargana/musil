@@ -125,12 +125,9 @@ mod tests {
 
     fn produce_frame(topic: &str, partition_id: u16, correlation_id: u32) -> Frame {
         let encoded = Record::new(0, b"key", b"val").encode();
-        let batch = RecordBatch {
-            base_offset: 0,
-            batch_length: 4 + encoded.len() as u32,
-            records_count: 1,
-            records: Bytes::from(encoded),
-        };
+        let records = Bytes::from(encoded);
+        let batch_length = 4 + records.len() as u32;
+        let batch = RecordBatch::from_compact(0, batch_length, 1, records);
         Frame {
             size: 0,
             header: RequestHeaderBuilder::default()

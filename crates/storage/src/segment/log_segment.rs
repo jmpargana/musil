@@ -216,12 +216,9 @@ mod tests {
     }
 
     fn make_batch(base_offset: u64, records_count: u32, payload: &[u8]) -> RecordBatch {
-        RecordBatch {
-            base_offset,
-            batch_length: 4 + payload.len() as u32,
-            records_count,
-            records: Bytes::copy_from_slice(payload),
-        }
+        let records = Bytes::copy_from_slice(payload);
+        let batch_length = 4 + records.len() as u32;
+        RecordBatch::from_compact(base_offset, batch_length, records_count, records)
     }
 
     #[test]

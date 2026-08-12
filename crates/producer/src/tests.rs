@@ -181,7 +181,7 @@ mod error_tests {
 
         let batch = HashMap::from([(
             "t".to_string(),
-            HashMap::from([(0u16, vec![Record { offset_delta: 0, timestamp: 0, key: vec![], value: b"v".to_vec() }])]),
+            HashMap::from([(0u16, vec![Record::new(0, b"", b"v")])]),
         )]);
         let result = actor.publish(batch).await;
         assert!(matches!(result, Err(ProducerError::IoErr(_))));

@@ -3,10 +3,9 @@ use std::{fs::File, os::unix::fs::FileExt, sync::Arc};
 use memmap::{Mmap, MmapOptions};
 
 use proto::{
-    batch_attributes::BatchAttributes, batch_iter::BatchIter, error::ProtoError,
-    fetch::request::fetch_partition::FetchPartition, record::Record, record_batch::RecordBatch,
+    batch_iter::BatchIter, error::ProtoError,
+    fetch::request::fetch_partition::FetchPartition, record_batch::RecordBatch,
 };
-use tokio::io::AsyncSeekExt;
 
 const INDEX_ENTRY_SIZE: usize = 16;
 
@@ -58,6 +57,7 @@ impl SegmentView {
         Ok(BatchIter {
             file: self.log.clone(),
             pos,
+            end: self.size as u64,
         })
     }
 
@@ -65,6 +65,7 @@ impl SegmentView {
         BatchIter {
             file: self.log.clone(),
             pos,
+            end: self.size as u64,
         }
     }
 
@@ -74,78 +75,34 @@ impl SegmentView {
     }
 
     pub fn fetch(&self, req: FetchPartition) -> Vec<RecordBatch> {
-        let start = match self.find_physical_position(req.fetch_offset) {
-            Some(idx) => idx,
-            None if self.size > 0 => IndexEntry {
-                offset: self.base_offset,
-                pos: 0,
+        let mut batches = match self.batch_iter_from(req.fetch_offset) {
+            Ok(iter) => iter,
+            Err(_) => return vec![],
+        };
+
+        let first = match batches.next() {
+            Some(Ok(batch)) => match batch.slice_from_offset(req.fetch_offset) {
+                Ok(sliced) => sliced,
+                Err(_) => return vec![],
             },
-            None => return vec![],
+            _ => return vec![],
         };
 
-        let Ok(mut pos) = self.linear_search(req.fetch_offset, start) else {
-            return vec![];
-        };
+        let mut bytes = first.batch_length;
+        let mut result = vec![first];
 
-        if pos >= self.size as u64 {
-            return vec![];
-        }
+        for batch in batches {
+            let Ok(batch) = batch else { break };
 
-        let batch_iter = self.batches_from(pos);
-        let batch = batch_iter.next().unwrap().unwrap();
-
-        let target_delta = req.fetch_offset.saturating_sub(batch.base_offset);
-        let record_iter = batch.records_iter();
-        let mut skipped_count = 0u32;
-        let starting_pos = record_iter
-            .find_map(|(pos, record)| {
-                if record.offset_delta == target_delta {
-                    Some(pos)
-                } else {
-                    skipped_count += 1;
-                    None
-                }
-            })
-            .unwrap_or(0);
-
-        let sliced_records = batch.records.slice(starting_pos..);
-        let actual_batch_length = sliced_records.len() as u32 + 4;
-
-        let mut batches = vec![RecordBatch {
-            base_offset: req.fetch_offset,
-            batch_length: actual_batch_length,
-            records_count: batch.records_count.saturating_sub(skipped_count),
-            records: sliced_records,
-            partition_leader_epoch: -1,
-            magic: 2,
-            crc: todo!(),
-            attributes: BatchAttributes(0),
-            last_offset_delta: todo!(),
-            base_timestamp: todo!(),
-            max_timestamp: todo!(),
-            producer_id: -1,
-            producer_epoch: -1,
-            base_sequence: -1,
-        }];
-
-        let mut total_bytes = actual_batch_length;
-        pos += 12 + batch.batch_length as u64;
-        while total_bytes < req.partition_max_bytes {
-            if pos + 12 > self.size as u64 {
+            if bytes + batch.batch_length > req.partition_max_bytes {
                 break;
             }
-            let batch = RecordBatch::decode_file(&self.log, pos);
-            if 12 + batch.batch_length as u64 > self.size as u64 - pos {
-                break;
-            }
-            total_bytes += batch.batch_length;
-            pos += 12 + batch.batch_length as u64;
-            if total_bytes <= req.partition_max_bytes {
-                batches.push(batch);
-            }
+
+            bytes += batch.batch_length;
+            result.push(batch);
         }
 
-        batches
+        result
     }
 
     pub fn with_metadata(&self, index_count: usize, size: usize) -> Arc<Self> {
@@ -262,12 +219,9 @@ mod tests {
     ) -> RecordBatch {
         let record = Record::new(offset_delta, key, val);
         let encoded = record.encode();
-        RecordBatch {
-            base_offset,
-            batch_length: 4 + encoded.len() as u32,
-            records_count: 1,
-            records: Bytes::from(encoded),
-        }
+        let records = Bytes::from(encoded);
+        let batch_length = 4 + records.len() as u32;
+        RecordBatch::from_compact(base_offset, batch_length, 1, records)
     }
 
     fn fetch_req(offset: u64, max_bytes: u32) -> FetchPartition {

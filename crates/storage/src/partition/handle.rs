@@ -113,12 +113,9 @@ mod tests {
         for (i, (key, val)) in records.iter().enumerate() {
             encoded.extend(Record::new(i as u64, key, val).encode());
         }
-        RecordBatch {
-            base_offset,
-            batch_length: 4 + encoded.len() as u32,
-            records_count: records.len() as u32,
-            records: Bytes::from(encoded),
-        }
+        let records_data = Bytes::from(encoded);
+        let batch_length = 4 + records_data.len() as u32;
+        RecordBatch::from_compact(base_offset, batch_length, records.len() as u32, records_data)
     }
 
     fn fetch_req(offset: u64, max_bytes: u32) -> FetchPartition {

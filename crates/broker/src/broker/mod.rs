@@ -297,12 +297,9 @@ mod tests {
 
     fn record_batch(base_offset: u64, key: &[u8], val: &[u8]) -> RecordBatch {
         let encoded = Record::new(0, key, val).encode();
-        RecordBatch {
-            base_offset,
-            batch_length: 4 + encoded.len() as u32,
-            records_count: 1,
-            records: Bytes::from(encoded),
-        }
+        let records = Bytes::from(encoded);
+        let batch_length = 4 + records.len() as u32;
+        RecordBatch::from_compact(base_offset, batch_length, 1, records)
     }
 
     fn produce_frame(topic: &str, partition_id: u16, batch: RecordBatch) -> Frame {

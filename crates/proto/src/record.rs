@@ -1,13 +1,12 @@
-use core::fmt;
 use std::{
-    io::{self, Write},
+    io::{self},
     ops::Deref,
     time::UNIX_EPOCH,
 };
 
-use bytes::{Buf, BufMut};
+use bytes::{Buf, BufMut, BytesMut};
 
-use crate::{record_header::RecordHeader, record_iter::RecordIter};
+use crate::record_header::RecordHeader;
 
 /**
  * Source: https://kafka.apache.org/43/implementation/message-format/
@@ -93,8 +92,23 @@ impl Record {
         })
     }
 
+    /// Decode a record from a byte slice, returning the record and number of bytes consumed.
+    pub fn decode_raw(buf: &[u8]) -> io::Result<(Self, usize)> {
+        let mut cursor = &buf[..];
+        let start_len = cursor.len();
+        let record = Self::decode(&mut cursor)?;
+        let consumed = start_len - cursor.len();
+        Ok((record, consumed))
+    }
+
+    pub fn encode(&self) -> Vec<u8> {
+        let mut buf = BytesMut::with_capacity(self.length as usize + 4);
+        self.encode_to(&mut buf);
+        buf.to_vec()
+    }
+
     // TODO: should return Result?
-    pub fn encode<B: BufMut>(&self, buf: &mut B) {
+    pub fn encode_to<B: BufMut>(&self, buf: &mut B) {
         buf.put_u32(self.length);
         buf.put_u8(self.attributes);
         buf.put_u64(self.timestamp_delta);
@@ -121,8 +135,17 @@ mod tests {
     fn decode_encode_e2e() {
         let record = Record::new(10, b"hello", b"world");
         let mut bytes = BytesMut::new();
-        record.encode(&mut bytes);
+        record.encode_to(&mut bytes);
         let decoded = Record::decode(&mut bytes).unwrap();
         assert_eq!(record, decoded);
+    }
+
+    #[test]
+    fn decode_raw_returns_consumed_bytes() {
+        let record = Record::new(5, b"k", b"v");
+        let encoded = record.encode();
+        let (decoded, consumed) = Record::decode_raw(&encoded).unwrap();
+        assert_eq!(decoded, record);
+        assert_eq!(consumed, encoded.len());
     }
 }

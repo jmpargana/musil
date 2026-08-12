@@ -1,21 +1,16 @@
-use core::fmt;
-use std::{
-    fs::File,
-    io::{Read, Seek},
-    os::unix::fs::FileExt,
-};
+use std::{fs::File, os::unix::fs::FileExt};
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 use crate::{
-    batch_attributes::BatchAttributes, error::ProtoError, record::Record, record_iter::RecordIter,
+    batch_attributes::BatchAttributes,
+    error::ProtoError,
+    record::Record,
+    record_iter::RecordIter,
+    record_ref::{RecordRef, RecordRefIter},
 };
 
-struct RecordLocation {
-    pos: u64,
-    offset: u64,
-}
+const HEADER_SIZE: usize = 16; // base_offset(8) + batch_length(4) + records_count(4)
 
 // TODO: actually some values are ints instead of uints, but I don't understand why, even for -1 representations.
 #[derive(Debug, Clone)]
@@ -72,17 +67,16 @@ impl From<Vec<Record>> for RecordBatch {
             // TODO: change timestamp as well based on base
             r.offset_delta = i as u64;
             r.timestamp_delta = r.timestamp_delta - base_timestamp;
-            r.encode(&mut buf);
+            r.encode_to(&mut buf);
         }
 
         let records = buf.freeze();
         // FIXME: compress with gzip
-
         let crc = crc_fast::crc32_iscsi(&records);
 
         // includes batch_length field.
         // TODO: find out if this breaks compatibility
-        let batch_length = records.len() as u32 + 4 + 4 + 2 + 8 + 8 + 8 + 4 + 2 + 4 + 1 + 4 + 4;
+        let batch_length = 4 + records.len() as u32;
 
         RecordBatch {
             base_offset,
@@ -104,6 +98,28 @@ impl From<Vec<Record>> for RecordBatch {
 }
 
 impl RecordBatch {
+    /// Construct from the compact on-disk/wire format (base_offset + batch_length + records_count + records).
+    /// All other fields get sensible defaults.
+    pub fn from_compact(base_offset: u64, batch_length: u32, records_count: u32, records: Bytes) -> Self {
+        let crc = crc_fast::crc32_iscsi(&records);
+        Self {
+            base_offset,
+            batch_length,
+            records_count,
+            records,
+            partition_leader_epoch: -1,
+            magic: 2,
+            crc,
+            attributes: BatchAttributes(0),
+            last_offset_delta: records_count as i32 - 1,
+            base_timestamp: 0,
+            max_timestamp: 0,
+            producer_id: -1,
+            producer_epoch: -1,
+            base_sequence: -1,
+        }
+    }
+
     pub fn checksum(&self) -> bool {
         crc_fast::crc32_iscsi(&self.records) == self.crc
     }
@@ -116,28 +132,81 @@ impl RecordBatch {
         self.base_offset = offset;
     }
 
+    pub fn encode_header(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(HEADER_SIZE);
+        buf.extend_from_slice(&self.base_offset.to_be_bytes());
+        buf.extend_from_slice(&self.batch_length.to_be_bytes());
+        buf.extend_from_slice(&self.records_count.to_be_bytes());
+        buf
+    }
+
+    pub fn decode_file(file: &File, pos: u64) -> Self {
+        let mut header = [0u8; HEADER_SIZE];
+        file.read_at(&mut header, pos).unwrap();
+
+        let base_offset = u64::from_be_bytes(header[0..8].try_into().unwrap());
+        let batch_length = u32::from_be_bytes(header[8..12].try_into().unwrap());
+        let records_count = u32::from_be_bytes(header[12..16].try_into().unwrap());
+
+        let records_len = batch_length as usize - 4;
+        let mut records_buf = vec![0u8; records_len];
+        file.read_at(&mut records_buf, pos + HEADER_SIZE as u64).unwrap();
+
+        Self::from_compact(base_offset, batch_length, records_count, Bytes::from(records_buf))
+    }
+
+    /// Decode from a raw byte slice. `pos` is ignored (for API compat with tests).
+    pub fn decode_slice(raw: &[u8], _pos: u64) -> Self {
+        let base_offset = u64::from_be_bytes(raw[0..8].try_into().unwrap());
+        let batch_length = u32::from_be_bytes(raw[8..12].try_into().unwrap());
+        let records_count = u32::from_be_bytes(raw[12..16].try_into().unwrap());
+
+        Self::from_compact(base_offset, batch_length, records_count, Bytes::copy_from_slice(&raw[16..]))
+    }
+
+    pub fn records_iter(&self) -> RecordIter {
+        RecordIter::new(self.records.clone())
+    }
+
+    pub fn record_refs(&self) -> RecordRefIter {
+        RecordRefIter::new(self.records.clone())
+    }
+
+    pub fn find_record(&self, offset_delta: u64) -> Option<RecordRef> {
+        self.record_refs()
+            .filter_map(|r| r.ok())
+            .find(|r| r.offset_delta == offset_delta)
+    }
+
     pub fn slice_from_offset(&self, offset: u64) -> Result<RecordBatch, ProtoError> {
-        todo!()
-    }
-
-    fn records_iter(&self) -> RecordIter {
-        RecordIter {
-            buf: self.records.clone(),
+        if offset == self.base_offset {
+            return Ok(self.clone());
         }
-    }
 
-    pub fn find_record(&self) -> Option<RecordLocation> {
-        None
-    }
+        let delta = offset - self.base_offset;
+        let loc = self.find_record(delta).ok_or(ProtoError::InvalidOffset)?;
 
-    pub fn slice_from_record(&self, offset_delta: u64) -> Option<Self> {
-        // find record
+        let sliced_records = self.records.slice(loc.byte_offset..);
+        let records_count = self.records_count - loc.record_index();
+        let batch_length = 4 + sliced_records.len() as u32;
+        let crc = crc_fast::crc32_iscsi(&sliced_records);
 
-        // slice bytes
-
-        // recompute
-
-        None
+        Ok(RecordBatch {
+            base_offset: offset,
+            batch_length,
+            partition_leader_epoch: self.partition_leader_epoch,
+            magic: self.magic,
+            crc,
+            attributes: self.attributes,
+            last_offset_delta: self.last_offset_delta - delta as i32,
+            base_timestamp: self.base_timestamp,
+            max_timestamp: self.max_timestamp,
+            producer_id: self.producer_id,
+            producer_epoch: self.producer_epoch,
+            base_sequence: self.base_sequence,
+            records_count,
+            records: sliced_records,
+        })
     }
 
     pub fn encode<B: BufMut>(&self, buf: &mut B) {
@@ -202,18 +271,21 @@ mod tests {
 
     fn make_batch(base_offset: u64, records: &[Record]) -> RecordBatch {
         let records_count = records.len() as u32;
-        let encoded: Vec<u8> = records.iter().flat_map(|r| r.encode()).collect();
-        let batch_length = 4 + encoded.len() as u32;
-        RecordBatch {
-            base_offset,
-            batch_length,
-            records_count,
-            records: Bytes::from(encoded),
+        let mut buf = BytesMut::new();
+        for r in records {
+            r.encode_to(&mut buf);
         }
+        let encoded = buf.freeze();
+        let batch_length = 4 + encoded.len() as u32;
+        RecordBatch::from_compact(base_offset, batch_length, records_count, encoded)
     }
 
     fn encoded_batch_bytes(base_offset: u64, records: &[Record]) -> Vec<u8> {
-        let encoded: Vec<u8> = records.iter().flat_map(|r| r.encode()).collect();
+        let mut enc = BytesMut::new();
+        for r in records {
+            r.encode_to(&mut enc);
+        }
+        let encoded = enc.freeze();
         let records_count = records.len() as u32;
         let batch_length = 4 + encoded.len() as u32;
 
@@ -270,12 +342,12 @@ mod tests {
         let record = Record::new(0, b"key", b"value");
         let raw = encoded_batch_bytes(7, &[record.clone()]);
 
-        let batch = RecordBatch::decode(&raw, 0);
+        let batch = RecordBatch::decode_slice(&raw, 0);
 
         assert_eq!(batch.base_offset, 7);
         assert_eq!(batch.records_count, 1);
 
-        let decoded = Record::decode(&batch.records).unwrap();
+        let decoded = Record::decode(&mut batch.records.clone()).unwrap();
         assert_eq!(decoded, record);
     }
 
@@ -293,15 +365,62 @@ mod tests {
 
         let file = std::fs::File::open(&path).unwrap();
         let from_file = RecordBatch::decode_file(&file, 0);
-        let from_slice = RecordBatch::decode(&raw, 0);
+        let from_slice = RecordBatch::decode_slice(&raw, 0);
 
         assert_eq!(from_file.base_offset, from_slice.base_offset);
         assert_eq!(from_file.batch_length, from_slice.batch_length);
         assert_eq!(from_file.records_count, from_slice.records_count);
         assert_eq!(from_file.records, from_slice.records);
 
-        assert_eq!(Record::decode(&from_file.records).unwrap(), record);
+        assert_eq!(Record::decode(&mut from_file.records.clone()).unwrap(), record);
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn slice_from_offset_returns_clone_at_base() {
+        let records = vec![
+            Record::new(0, b"a", b"1"),
+            Record::new(1, b"b", b"2"),
+        ];
+        let batch = make_batch(10, &records);
+        let sliced = batch.slice_from_offset(10).unwrap();
+        assert_eq!(sliced.records_count, 2);
+        assert_eq!(sliced.base_offset, 10);
+    }
+
+    #[test]
+    fn slice_from_offset_skips_first_record() {
+        let records = vec![
+            Record::new(0, b"a", b"1"),
+            Record::new(1, b"b", b"2"),
+            Record::new(2, b"c", b"3"),
+        ];
+        let batch = make_batch(10, &records);
+        let sliced = batch.slice_from_offset(11).unwrap();
+        assert_eq!(sliced.records_count, 2);
+        assert_eq!(sliced.base_offset, 11);
+
+        let decoded = Record::decode(&mut sliced.records.clone()).unwrap();
+        assert_eq!(decoded.key, b"b");
+    }
+
+    #[test]
+    fn slice_from_offset_invalid_returns_error() {
+        let records = vec![Record::new(0, b"a", b"1")];
+        let batch = make_batch(10, &records);
+        assert!(batch.slice_from_offset(99).is_err());
+    }
+
+    #[test]
+    fn find_record_returns_correct_ref() {
+        let records = vec![
+            Record::new(0, b"a", b"1"),
+            Record::new(1, b"b", b"2"),
+        ];
+        let batch = make_batch(0, &records);
+        let loc = batch.find_record(1).unwrap();
+        assert_eq!(loc.offset_delta, 1);
+        assert!(loc.byte_offset > 0);
     }
 }
