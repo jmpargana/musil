@@ -29,6 +29,7 @@ proto = { path = "crates/proto" }
 storage = { path = "crates/storage" }
 crc-fast = "1.10.0"
 tokio-stream = "0.1.19"
+async-trait = "0.1.92"
 
 [dependencies]
 broker = { path = "crates/broker" }
@@ -49,6 +50,7 @@ tracing-log = "0.2.0"
 crc-fast = "1.10.0"
 flate2 = "1.1.9"
 tokio-stream = "0.1.19"
+async-trait = "0.1.92"
 
 [dev-dependencies]
 tempdir = "0.3.7"
