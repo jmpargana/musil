@@ -4,7 +4,8 @@ use memmap::{Mmap, MmapOptions};
 
 use proto::{
     batch_iter::BatchIter, error::ProtoError,
-    fetch::request::fetch_partition::FetchPartition, record_batch::RecordBatch,
+    fetch::request::fetch_partition::FetchPartition,
+    record_batch::{RecordBatch, BATCH_HEADER_PREFIX},
 };
 
 const INDEX_ENTRY_SIZE: usize = 16;
@@ -165,13 +166,13 @@ impl SegmentView {
             }
             let _ = read_u64_at(&self.log, pos)?;
             let batch_length = read_u32_at(&self.log, pos + 8)?;
-            let records_count = read_u32_at(&self.log, pos + 12)?;
+            let records_count = read_u32_at(&self.log, pos + BATCH_HEADER_PREFIX as u64)?;
 
             if offset + records_count as u64 > target_offset {
                 break;
             }
 
-            pos += 12 + batch_length as u64;
+            pos += BATCH_HEADER_PREFIX as u64 + batch_length as u64;
             offset += records_count as u64;
         }
 
@@ -208,7 +209,7 @@ mod tests {
             .index_interval_bytes(1)
             .build()
             .unwrap();
-        LogSegment::new(cfg).unwrap()
+        LogSegment::open(cfg).unwrap()
     }
 
     fn single_record_batch(

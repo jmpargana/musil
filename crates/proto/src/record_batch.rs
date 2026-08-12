@@ -10,7 +10,11 @@ use crate::{
     record_ref::{RecordRef, RecordRefIter},
 };
 
-const HEADER_SIZE: usize = 16; // base_offset(8) + batch_length(4) + records_count(4)
+pub const HEADER_SIZE: usize = 16; // base_offset(8) + batch_length(4) + records_count(4)
+
+/// Bytes before the batch_length payload on disk: base_offset(8) + batch_length_field(4).
+/// Total bytes on disk = BATCH_HEADER_PREFIX + batch_length.
+pub const BATCH_HEADER_PREFIX: usize = 12;
 
 // TODO: actually some values are ints instead of uints, but I don't understand why, even for -1 representations.
 #[derive(Debug, Clone)]
@@ -125,7 +129,7 @@ impl RecordBatch {
     }
 
     pub fn get_size(&self) -> u32 {
-        8 + 4 + self.batch_length
+        BATCH_HEADER_PREFIX as u32 + self.batch_length
     }
 
     pub fn update_base_offset(&mut self, offset: u64) {
@@ -298,10 +302,10 @@ mod tests {
     }
 
     #[test]
-    fn get_size_equals_12_plus_batch_length() {
+    fn get_size_equals_header_prefix_plus_batch_length() {
         let records = vec![Record::new(0, b"key", b"value")];
         let batch = make_batch(0, &records);
-        assert_eq!(batch.get_size(), 12 + batch.batch_length);
+        assert_eq!(batch.get_size(), BATCH_HEADER_PREFIX as u32 + batch.batch_length);
     }
 
     #[test]

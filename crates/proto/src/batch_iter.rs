@@ -1,6 +1,6 @@
 use std::{fs::File, os::unix::fs::FileExt, sync::Arc};
 
-use crate::{error::ProtoError, record_batch::RecordBatch};
+use crate::{error::ProtoError, record_batch::{RecordBatch, BATCH_HEADER_PREFIX}};
 
 pub struct BatchIter {
     pub file: Arc<File>,
@@ -35,7 +35,7 @@ impl Iterator for BatchIter {
         }
 
         let batch = RecordBatch::decode_file(&self.file, self.pos);
-        self.pos += 12 + batch_length as u64;
+        self.pos += BATCH_HEADER_PREFIX as u64 + batch_length as u64;
 
         Some(Ok(batch))
     }

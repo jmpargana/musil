@@ -62,12 +62,13 @@ impl From<PartitionConfig> for PartitionActorConfig {
 }
 
 fn scan_records_count(base_dir: &str, base_offset: u64, size: usize) -> io::Result<u64> {
+    use proto::record_batch::BATCH_HEADER_PREFIX;
     use std::os::unix::fs::FileExt;
     let path = Path::new(base_dir).join(format!("{:020}.log", base_offset));
     let file = std::fs::File::open(path)?;
     let mut pos: u64 = 0;
     let mut total: u64 = 0;
-    while pos + 12 <= size as u64 {
+    while pos + BATCH_HEADER_PREFIX as u64 <= size as u64 {
         let mut header = [0u8; 12];
         file.read_at(&mut header, pos)?;
         let batch_length = u32::from_be_bytes(header[8..12].try_into().unwrap());
@@ -75,10 +76,10 @@ fn scan_records_count(base_dir: &str, base_offset: u64, size: usize) -> io::Resu
             break;
         }
         let mut count_buf = [0u8; 4];
-        file.read_at(&mut count_buf, pos + 12)?;
+        file.read_at(&mut count_buf, pos + BATCH_HEADER_PREFIX as u64)?;
         let records_count = u32::from_be_bytes(count_buf);
         total += records_count as u64;
-        pos += 12 + batch_length as u64;
+        pos += BATCH_HEADER_PREFIX as u64 + batch_length as u64;
     }
     Ok(total)
 }
@@ -100,30 +101,18 @@ impl PartitionActor {
             .collect();
         log_offsets.sort_unstable();
 
-        let (mut active, leo) = if log_offsets.is_empty() {
-            let cfg = SegmentConfigBuilder::default()
-                .base_dir(config.base_dir.clone())
-                .base_offset(0)
-                .segment_bytes(config.segment_bytes)
-                .build()
-                .unwrap();
-            let seg = LogSegment::new(cfg)?;
-            (seg, 0u64)
-        } else {
-            let last_base = *log_offsets.last().unwrap();
-            let cfg = SegmentConfigBuilder::default()
-                .base_dir(config.base_dir.clone())
-                .base_offset(last_base)
-                .segment_bytes(config.segment_bytes)
-                .build()
-                .unwrap();
-            let seg = LogSegment::open(cfg)?;
-            let leo = last_base + scan_records_count(&config.base_dir, last_base, seg.size)?;
-            (seg, leo)
-        };
+        let last_base = log_offsets.last().copied().unwrap_or(0);
+        let cfg = SegmentConfigBuilder::default()
+            .base_dir(config.base_dir.clone())
+            .base_offset(last_base)
+            .segment_bytes(config.segment_bytes)
+            .build()
+            .unwrap();
+        let mut active = LogSegment::open(cfg)?;
+        let leo = last_base + scan_records_count(&config.base_dir, last_base, active.size)?;
 
         let mut segments: Vec<Arc<crate::segment::metadata::SegmentView>> = Vec::new();
-        let frozen_count = if log_offsets.is_empty() { 0 } else { log_offsets.len() - 1 };
+        let frozen_count = log_offsets.len().saturating_sub(1);
         for &base_offset in &log_offsets[..frozen_count] {
             let cfg = SegmentConfigBuilder::default()
                 .base_dir(config.base_dir.clone())
@@ -136,14 +125,14 @@ impl PartitionActor {
         }
         segments.push(active.publish());
 
-        if active.size >= config.segment_bytes && !log_offsets.is_empty() {
+        if active.size >= config.segment_bytes {
             let cfg = SegmentConfigBuilder::default()
                 .base_dir(config.base_dir.clone())
                 .base_offset(leo)
                 .segment_bytes(config.segment_bytes)
                 .build()
                 .unwrap();
-            let mut new_active = LogSegment::new(cfg)?;
+            let mut new_active = LogSegment::open(cfg)?;
             segments.push(new_active.publish());
             active = new_active;
         }
@@ -205,7 +194,7 @@ impl PartitionActor {
                             .build()
                             .unwrap();
 
-                        let mut new_active = LogSegment::new(cfg).unwrap();
+                        let mut new_active = LogSegment::open(cfg).unwrap();
                         segments.push(new_active.publish());
                         self.active = new_active;
                     }

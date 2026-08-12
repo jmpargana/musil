@@ -8,7 +8,7 @@ use std::{
 use memmap::MmapOptions;
 
 use crate::segment::{config::SegmentConfig, metadata::SegmentView};
-use proto::record_batch::RecordBatch;
+use proto::record_batch::{BATCH_HEADER_PREFIX, RecordBatch};
 
 const INDEX_ENTRY_SIZE: usize = 16;
 
@@ -29,7 +29,8 @@ pub struct LogSegment {
 }
 
 impl LogSegment {
-    pub fn new(opts: SegmentConfig) -> io::Result<Self> {
+    // Love needed.
+    pub fn open(opts: SegmentConfig) -> io::Result<Self> {
         let base_path = Path::new(&opts.base_dir);
 
         fs::create_dir_all(base_path)?;
@@ -38,81 +39,41 @@ impl LogSegment {
         let index_path = base_path.join(format!("{:020}.index", opts.base_offset));
         let time_index_path = base_path.join(format!("{:020}.timeindex", opts.base_offset));
 
+        let exists = log_path.exists();
+        let existing_size = if exists {
+            let meta = std::fs::metadata(&log_path)?;
+            meta.len() as usize
+        } else {
+            0
+        };
+        let fresh = !exists || existing_size == 0;
+
         let log_file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
-            .truncate(true)
-            .open(log_path)?;
+            .truncate(fresh)
+            .open(&log_path)?;
 
         let index_file_handle = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
-            .truncate(true)
-            .open(index_path)?;
+            .truncate(fresh)
+            .open(&index_path)?;
 
         let time_index_file_handle = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
-            .truncate(true)
-            .open(time_index_path)?;
+            .truncate(fresh)
+            .open(&time_index_path)?;
 
         let max_entries = opts.segment_bytes / opts.index_interval_bytes + 1;
         let index_size = max_entries * INDEX_ENTRY_SIZE;
 
         index_file_handle.set_len(index_size as u64)?;
         time_index_file_handle.set_len(index_size as u64)?;
-        let index_file = unsafe {
-            MmapOptions::new()
-                .len(index_size)
-                .map_mut(&index_file_handle)?
-        };
-        let time_index_file = unsafe {
-            MmapOptions::new()
-                .len(index_size)
-                .map_mut(&time_index_file_handle)?
-        };
-
-        let segment = Arc::new(SegmentView::new(
-            opts.base_offset,
-            log_file.try_clone()?,
-            index_file_handle.try_clone()?,
-        ));
-
-        Ok(Self {
-            segment,
-            log_file,
-            index_file,
-            time_index_file,
-            index_write_pos: 0,
-            index_count: 0,
-            size: 0,
-            bytes_since_last_index: opts.index_interval_bytes,
-            index_threshold_bytes: opts.index_interval_bytes,
-        })
-    }
-
-    pub fn open(opts: SegmentConfig) -> io::Result<Self> {
-        let base_path = Path::new(&opts.base_dir);
-
-        let log_path = base_path.join(format!("{:020}.log", opts.base_offset));
-        let index_path = base_path.join(format!("{:020}.index", opts.base_offset));
-        let time_index_path = base_path.join(format!("{:020}.timeindex", opts.base_offset));
-
-        let log_file = OpenOptions::new().read(true).write(true).open(log_path)?;
-
-        let index_file_handle = OpenOptions::new().read(true).write(true).open(index_path)?;
-        let time_index_file_handle = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(time_index_path)?;
-
-        let existing_size = log_file.metadata()?.len() as usize;
-
-        let max_entries = opts.segment_bytes / opts.index_interval_bytes + 1;
-        let index_size = max_entries * INDEX_ENTRY_SIZE;
 
         let index_file = unsafe {
             MmapOptions::new()
@@ -125,8 +86,10 @@ impl LogSegment {
                 .map_mut(&time_index_file_handle)?
         };
 
-        let mut index_count = 0;
-        if existing_size > 0 {
+        let (index_count, size, bytes_since_last_index) = if fresh {
+            (0, 0, opts.index_interval_bytes)
+        } else {
+            let mut count = 0;
             for i in 0..max_entries {
                 let base = i * INDEX_ENTRY_SIZE;
                 let offset_bytes: [u8; 8] = index_file[base..base + 8].try_into().unwrap();
@@ -134,9 +97,10 @@ impl LogSegment {
                 if i > 0 && offset_bytes == [0; 8] && pos_bytes == [0; 8] {
                     break;
                 }
-                index_count += 1;
+                count += 1;
             }
-        }
+            (count, existing_size, 0)
+        };
 
         let index_write_pos = index_count * INDEX_ENTRY_SIZE;
 
@@ -153,8 +117,8 @@ impl LogSegment {
             time_index_file,
             index_write_pos,
             index_count,
-            size: existing_size,
-            bytes_since_last_index: 0,
+            size,
+            bytes_since_last_index,
             index_threshold_bytes: opts.index_interval_bytes,
         })
     }
@@ -165,7 +129,8 @@ impl LogSegment {
         self.log_file.write_all(&batch.encode_header())?;
         self.log_file.write_all(&batch.records)?;
 
-        self.bytes_since_last_index += 12 + batch.batch_length as usize;
+        let batch_on_disk = BATCH_HEADER_PREFIX + batch.batch_length as usize;
+        self.bytes_since_last_index += batch_on_disk;
 
         if self.bytes_since_last_index >= self.index_threshold_bytes
             && self.index_write_pos + INDEX_ENTRY_SIZE <= self.index_file.len()
@@ -185,7 +150,7 @@ impl LogSegment {
             self.bytes_since_last_index = 0;
         }
 
-        self.size += 12 + batch.batch_length as usize;
+        self.size += batch_on_disk;
         Ok(())
     }
 
@@ -212,7 +177,7 @@ mod tests {
             .segment_bytes(segment_bytes)
             .build()
             .unwrap();
-        LogSegment::new(cfg).unwrap()
+        LogSegment::open(cfg).unwrap()
     }
 
     fn make_batch(base_offset: u64, records_count: u32, payload: &[u8]) -> RecordBatch {
@@ -244,7 +209,7 @@ mod tests {
         let batch = make_batch(0, 1, b"hello");
         seg.append_batch(&batch).unwrap();
 
-        assert_eq!(seg.size, 12 + batch.batch_length as usize);
+        assert_eq!(seg.size, BATCH_HEADER_PREFIX + batch.batch_length as usize);
     }
 
     #[test]
