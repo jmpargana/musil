@@ -1,4 +1,0 @@
-[first_topic-0:key1] my second m
-[first_topic-0:key1] my third message
-
-

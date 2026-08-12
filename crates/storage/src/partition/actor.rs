@@ -12,7 +12,7 @@ use crate::partition::config::PartitionConfig;
 use crate::partition::state::PartitionState;
 use proto::produce::acks::Acks;
 use proto::produce::response::partition_response::ProducePartitionResponse;
-use crate::segment::config::SegmentConfigBuilder;
+use crate::segment::config::{SegmentConfig, SegmentConfigBuilder};
 use crate::segment::log_segment::LogSegment;
 
 struct PendingResponse {
@@ -61,85 +61,17 @@ impl From<PartitionConfig> for PartitionActorConfig {
     }
 }
 
-fn scan_records_count(base_dir: &str, base_offset: u64, size: usize) -> io::Result<u64> {
-    use proto::record_batch::BATCH_HEADER_PREFIX;
-    use std::os::unix::fs::FileExt;
-    let path = Path::new(base_dir).join(format!("{:020}.log", base_offset));
-    let file = std::fs::File::open(path)?;
-    let mut pos: u64 = 0;
-    let mut total: u64 = 0;
-    while pos + BATCH_HEADER_PREFIX as u64 <= size as u64 {
-        let mut header = [0u8; 12];
-        file.read_at(&mut header, pos)?;
-        let batch_length = u32::from_be_bytes(header[8..12].try_into().unwrap());
-        if pos + 16 > size as u64 {
-            break;
-        }
-        let mut count_buf = [0u8; 4];
-        file.read_at(&mut count_buf, pos + BATCH_HEADER_PREFIX as u64)?;
-        let records_count = u32::from_be_bytes(count_buf);
-        total += records_count as u64;
-        pos += BATCH_HEADER_PREFIX as u64 + batch_length as u64;
-    }
-    Ok(total)
-}
-
 impl PartitionActor {
     pub fn new(
         rx: mpsc::Receiver<PartitionCommand>,
         snapshot: Arc<ArcSwap<PartitionState>>,
         config: PartitionActorConfig,
     ) -> io::Result<Self> {
-        std::fs::create_dir_all(&config.base_dir)?;
-
-        let mut log_offsets: Vec<u64> = std::fs::read_dir(&config.base_dir)?
-            .filter_map(|e| e.ok())
-            .filter_map(|e| {
-                let name = e.file_name().into_string().ok()?;
-                name.strip_suffix(".log")?.parse::<u64>().ok()
-            })
-            .collect();
-        log_offsets.sort_unstable();
-
-        let last_base = log_offsets.last().copied().unwrap_or(0);
-        let cfg = SegmentConfigBuilder::default()
-            .base_dir(config.base_dir.clone())
-            .base_offset(last_base)
-            .segment_bytes(config.segment_bytes)
-            .build()
-            .unwrap();
-        let mut active = LogSegment::open(cfg)?;
-        let leo = last_base + scan_records_count(&config.base_dir, last_base, active.size)?;
-
-        let mut segments: Vec<Arc<crate::segment::metadata::SegmentView>> = Vec::new();
-        let frozen_count = log_offsets.len().saturating_sub(1);
-        for &base_offset in &log_offsets[..frozen_count] {
-            let cfg = SegmentConfigBuilder::default()
-                .base_dir(config.base_dir.clone())
-                .base_offset(base_offset)
-                .segment_bytes(config.segment_bytes)
-                .build()
-                .unwrap();
-            let mut seg = LogSegment::open(cfg)?;
-            segments.push(seg.publish());
-        }
-        segments.push(active.publish());
-
-        if active.size >= config.segment_bytes {
-            let cfg = SegmentConfigBuilder::default()
-                .base_dir(config.base_dir.clone())
-                .base_offset(leo)
-                .segment_bytes(config.segment_bytes)
-                .build()
-                .unwrap();
-            let mut new_active = LogSegment::open(cfg)?;
-            segments.push(new_active.publish());
-            active = new_active;
-        }
+        let (active, segments, leo) = Self::initialize(&config)?;
 
         let state = snapshot.load_full();
         let hw = if state.replicas.is_empty() { leo } else { state.high_watermark };
-        let next = Arc::new((*state).clone().consume(segments.into(), leo, hw));
+        let next = Arc::new((*state).clone().consume(segments, leo, hw));
         snapshot.store(next);
 
         Ok(Self {
@@ -152,6 +84,51 @@ impl PartitionActor {
             partition_id: config.partition_id,
             segment_bytes: config.segment_bytes,
         })
+    }
+
+    fn initialize(config: &PartitionActorConfig) -> io::Result<(LogSegment, Arc<Vec<Arc<crate::segment::metadata::SegmentView>>>, u64)> {
+        std::fs::create_dir_all(&config.base_dir)?;
+
+        let mut log_offsets: Vec<u64> = std::fs::read_dir(&config.base_dir)?
+            .filter_map(|e| e.ok())
+            .filter_map(|e| {
+                let name = e.file_name().into_string().ok()?;
+                name.strip_suffix(".log")?.parse::<u64>().ok()
+            })
+            .collect();
+        log_offsets.sort_unstable();
+
+        let last_base = log_offsets.last().copied().unwrap_or(0);
+        let mut active = LogSegment::open(Self::build_segment_config(&config.base_dir, last_base, config.segment_bytes))?;
+        let leo = last_base + active.records_count()?;
+
+        let mut segments: Vec<Arc<crate::segment::metadata::SegmentView>> = Vec::new();
+        for &base_offset in &log_offsets[..log_offsets.len().saturating_sub(1)] {
+            let mut seg = LogSegment::open(Self::build_segment_config(&config.base_dir, base_offset, config.segment_bytes))?;
+            segments.push(seg.publish());
+        }
+        segments.push(active.publish());
+
+        if active.size >= config.segment_bytes {
+            let mut new_active = LogSegment::open(Self::build_segment_config(&config.base_dir, leo, config.segment_bytes))?;
+            segments.push(new_active.publish());
+            active = new_active;
+        }
+
+        Ok((active, Arc::new(segments), leo))
+    }
+
+    fn build_segment_config(base_dir: &str, base_offset: u64, segment_bytes: usize) -> SegmentConfig {
+        SegmentConfigBuilder::default()
+            .base_dir(base_dir.to_string())
+            .base_offset(base_offset)
+            .segment_bytes(segment_bytes)
+            .build()
+            .unwrap()
+    }
+
+    fn segment_config(&self, base_offset: u64) -> SegmentConfig {
+        Self::build_segment_config(&self.base_dir, base_offset, self.segment_bytes)
     }
 
     #[cfg(test)]
@@ -187,14 +164,7 @@ impl PartitionActor {
                     *segments.last_mut().unwrap() = current_active;
 
                     if self.active.size >= self.segment_bytes {
-                        let cfg = SegmentConfigBuilder::default()
-                            .base_dir(self.base_dir.to_string())
-                            .base_offset(leo)
-                            .segment_bytes(self.segment_bytes)
-                            .build()
-                            .unwrap();
-
-                        let mut new_active = LogSegment::open(cfg).unwrap();
+                        let mut new_active = LogSegment::open(self.segment_config(leo)).unwrap();
                         segments.push(new_active.publish());
                         self.active = new_active;
                     }
