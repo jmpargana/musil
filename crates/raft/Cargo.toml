@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 tokio.workspace = true
 async_trait.workspace = true
+rand.workspace = true
