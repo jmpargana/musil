@@ -126,7 +126,7 @@ mod tests {
     fn produce_frame(topic: &str, partition_id: u16, correlation_id: u32) -> Frame {
         let encoded = Record::new(0, b"key", b"val").encode();
         let records = Bytes::from(encoded);
-        let batch_length = 4 + records.len() as u32;
+        let batch_length = 49 + records.len() as u32;
         let batch = RecordBatch::from_compact(0, batch_length, 1, records);
         Frame {
             size: 0,

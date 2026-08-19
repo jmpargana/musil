@@ -10,11 +10,17 @@ use crate::{
     record_ref::{RecordRef, RecordRefIter},
 };
 
-pub const HEADER_SIZE: usize = 16; // base_offset(8) + batch_length(4) + records_count(4)
+pub const HEADER_SIZE: usize = 61; // full header: base_offset(8) + batch_length(4) + all fixed fields(49)
 
 /// Bytes before the batch_length payload on disk: base_offset(8) + batch_length_field(4).
 /// Total bytes on disk = BATCH_HEADER_PREFIX + batch_length.
 pub const BATCH_HEADER_PREFIX: usize = 12;
+
+/// Fixed bytes in the batch_length payload before the records:
+/// partition_leader_epoch(4) + magic(1) + crc(4) + attributes(2) + last_offset_delta(4)
+/// + base_timestamp(8) + max_timestamp(8) + producer_id(8) + producer_epoch(2)
+/// + base_sequence(4) + records_count(4) = 49 bytes.
+pub const BATCH_PAYLOAD_HEADER: usize = 49;
 
 // TODO: actually some values are ints instead of uints, but I don't understand why, even for -1 representations.
 #[derive(Debug, Clone)]
@@ -78,9 +84,7 @@ impl From<Vec<Record>> for RecordBatch {
         // FIXME: compress with gzip
         let crc = crc_fast::crc32_iscsi(&records);
 
-        // includes batch_length field.
-        // TODO: find out if this breaks compatibility
-        let batch_length = 4 + records.len() as u32;
+        let batch_length = BATCH_PAYLOAD_HEADER as u32 + records.len() as u32;
 
         RecordBatch {
             base_offset,
@@ -102,10 +106,12 @@ impl From<Vec<Record>> for RecordBatch {
 }
 
 impl RecordBatch {
-    /// Construct from the compact on-disk/wire format (base_offset + batch_length + records_count + records).
-    /// All other fields get sensible defaults.
-    pub fn from_compact(base_offset: u64, batch_length: u32, records_count: u32, records: Bytes) -> Self {
+    /// Construct from records bytes, setting all header fields to sensible defaults.
+    /// The `_batch_length` parameter is ignored; batch_length is always recomputed as
+    /// `BATCH_PAYLOAD_HEADER + records.len()` to match the full 61-byte header format.
+    pub fn from_compact(base_offset: u64, _batch_length: u32, records_count: u32, records: Bytes) -> Self {
         let crc = crc_fast::crc32_iscsi(&records);
+        let batch_length = BATCH_PAYLOAD_HEADER as u32 + records.len() as u32;
         Self {
             base_offset,
             batch_length,
@@ -140,32 +146,97 @@ impl RecordBatch {
         let mut buf = Vec::with_capacity(HEADER_SIZE);
         buf.extend_from_slice(&self.base_offset.to_be_bytes());
         buf.extend_from_slice(&self.batch_length.to_be_bytes());
+        buf.extend_from_slice(&self.partition_leader_epoch.to_be_bytes());
+        buf.push(self.magic);
+        buf.extend_from_slice(&self.crc.to_be_bytes());
+        buf.extend_from_slice(&self.attributes.0.to_be_bytes());
+        buf.extend_from_slice(&self.last_offset_delta.to_be_bytes());
+        buf.extend_from_slice(&self.base_timestamp.to_be_bytes());
+        buf.extend_from_slice(&self.max_timestamp.to_be_bytes());
+        buf.extend_from_slice(&self.producer_id.to_be_bytes());
+        buf.extend_from_slice(&self.producer_epoch.to_be_bytes());
+        buf.extend_from_slice(&self.base_sequence.to_be_bytes());
         buf.extend_from_slice(&self.records_count.to_be_bytes());
         buf
     }
 
     pub fn decode_file(file: &File, pos: u64) -> Self {
-        let mut header = [0u8; HEADER_SIZE];
-        file.read_at(&mut header, pos).unwrap();
+        let mut prefix = [0u8; BATCH_HEADER_PREFIX];
+        file.read_at(&mut prefix, pos).unwrap();
 
-        let base_offset = u64::from_be_bytes(header[0..8].try_into().unwrap());
-        let batch_length = u32::from_be_bytes(header[8..12].try_into().unwrap());
-        let records_count = u32::from_be_bytes(header[12..16].try_into().unwrap());
+        let base_offset = u64::from_be_bytes(prefix[0..8].try_into().unwrap());
+        let batch_length = u32::from_be_bytes(prefix[8..12].try_into().unwrap());
 
-        let records_len = batch_length as usize - 4;
-        let mut records_buf = vec![0u8; records_len];
-        file.read_at(&mut records_buf, pos + HEADER_SIZE as u64).unwrap();
+        let mut payload = vec![0u8; batch_length as usize];
+        file.read_at(&mut payload, pos + BATCH_HEADER_PREFIX as u64).unwrap();
 
-        Self::from_compact(base_offset, batch_length, records_count, Bytes::from(records_buf))
+        let partition_leader_epoch = i32::from_be_bytes(payload[0..4].try_into().unwrap());
+        let magic = payload[4];
+        let crc = u32::from_be_bytes(payload[5..9].try_into().unwrap());
+        let attributes = u16::from_be_bytes(payload[9..11].try_into().unwrap());
+        let last_offset_delta = i32::from_be_bytes(payload[11..15].try_into().unwrap());
+        let base_timestamp = u64::from_be_bytes(payload[15..23].try_into().unwrap());
+        let max_timestamp = u64::from_be_bytes(payload[23..31].try_into().unwrap());
+        let producer_id = i64::from_be_bytes(payload[31..39].try_into().unwrap());
+        let producer_epoch = i16::from_be_bytes(payload[39..41].try_into().unwrap());
+        let base_sequence = i32::from_be_bytes(payload[41..45].try_into().unwrap());
+        let records_count = u32::from_be_bytes(payload[45..49].try_into().unwrap());
+        let records = Bytes::from(payload[BATCH_PAYLOAD_HEADER..].to_vec());
+
+        Self {
+            base_offset,
+            batch_length,
+            partition_leader_epoch,
+            magic,
+            crc,
+            attributes: BatchAttributes(attributes),
+            last_offset_delta,
+            base_timestamp,
+            max_timestamp,
+            producer_id,
+            producer_epoch,
+            base_sequence,
+            records_count,
+            records,
+        }
     }
 
     /// Decode from a raw byte slice. `pos` is ignored (for API compat with tests).
     pub fn decode_slice(raw: &[u8], _pos: u64) -> Self {
         let base_offset = u64::from_be_bytes(raw[0..8].try_into().unwrap());
         let batch_length = u32::from_be_bytes(raw[8..12].try_into().unwrap());
-        let records_count = u32::from_be_bytes(raw[12..16].try_into().unwrap());
 
-        Self::from_compact(base_offset, batch_length, records_count, Bytes::copy_from_slice(&raw[16..]))
+        let payload = &raw[BATCH_HEADER_PREFIX..BATCH_HEADER_PREFIX + batch_length as usize];
+
+        let partition_leader_epoch = i32::from_be_bytes(payload[0..4].try_into().unwrap());
+        let magic = payload[4];
+        let crc = u32::from_be_bytes(payload[5..9].try_into().unwrap());
+        let attributes = u16::from_be_bytes(payload[9..11].try_into().unwrap());
+        let last_offset_delta = i32::from_be_bytes(payload[11..15].try_into().unwrap());
+        let base_timestamp = u64::from_be_bytes(payload[15..23].try_into().unwrap());
+        let max_timestamp = u64::from_be_bytes(payload[23..31].try_into().unwrap());
+        let producer_id = i64::from_be_bytes(payload[31..39].try_into().unwrap());
+        let producer_epoch = i16::from_be_bytes(payload[39..41].try_into().unwrap());
+        let base_sequence = i32::from_be_bytes(payload[41..45].try_into().unwrap());
+        let records_count = u32::from_be_bytes(payload[45..49].try_into().unwrap());
+        let records = Bytes::copy_from_slice(&payload[BATCH_PAYLOAD_HEADER..]);
+
+        Self {
+            base_offset,
+            batch_length,
+            partition_leader_epoch,
+            magic,
+            crc,
+            attributes: BatchAttributes(attributes),
+            last_offset_delta,
+            base_timestamp,
+            max_timestamp,
+            producer_id,
+            producer_epoch,
+            base_sequence,
+            records_count,
+            records,
+        }
     }
 
     pub fn records_iter(&self) -> RecordIter {
@@ -192,7 +263,7 @@ impl RecordBatch {
 
         let sliced_records = self.records.slice(loc.byte_offset..);
         let records_count = self.records_count - loc.record_index();
-        let batch_length = 4 + sliced_records.len() as u32;
+        let batch_length = BATCH_PAYLOAD_HEADER as u32 + sliced_records.len() as u32;
         let crc = crc_fast::crc32_iscsi(&sliced_records);
 
         Ok(RecordBatch {
@@ -280,7 +351,7 @@ mod tests {
             r.encode_to(&mut buf);
         }
         let encoded = buf.freeze();
-        let batch_length = 4 + encoded.len() as u32;
+        let batch_length = BATCH_PAYLOAD_HEADER as u32 + encoded.len() as u32;
         RecordBatch::from_compact(base_offset, batch_length, records_count, encoded)
     }
 
@@ -291,11 +362,22 @@ mod tests {
         }
         let encoded = enc.freeze();
         let records_count = records.len() as u32;
-        let batch_length = 4 + encoded.len() as u32;
+        let batch_length = BATCH_PAYLOAD_HEADER as u32 + encoded.len() as u32;
+        let crc = crc_fast::crc32_iscsi(&encoded);
 
         let mut buf = Vec::new();
         buf.extend_from_slice(&base_offset.to_be_bytes());
         buf.extend_from_slice(&batch_length.to_be_bytes());
+        buf.extend_from_slice(&(-1i32).to_be_bytes()); // partition_leader_epoch
+        buf.push(2u8); // magic
+        buf.extend_from_slice(&crc.to_be_bytes());
+        buf.extend_from_slice(&0u16.to_be_bytes()); // attributes
+        buf.extend_from_slice(&(records_count as i32 - 1).to_be_bytes()); // last_offset_delta
+        buf.extend_from_slice(&0u64.to_be_bytes()); // base_timestamp
+        buf.extend_from_slice(&0u64.to_be_bytes()); // max_timestamp
+        buf.extend_from_slice(&(-1i64).to_be_bytes()); // producer_id
+        buf.extend_from_slice(&(-1i16).to_be_bytes()); // producer_epoch
+        buf.extend_from_slice(&(-1i32).to_be_bytes()); // base_sequence
         buf.extend_from_slice(&records_count.to_be_bytes());
         buf.extend_from_slice(&encoded);
         buf
@@ -330,11 +412,12 @@ mod tests {
         let records = vec![Record::new(0, b"hello", b"world")];
         let batch = make_batch(100, &records);
         let encoded = batch.encode_header();
-        assert_eq!(encoded.len(), 16);
+        assert_eq!(encoded.len(), HEADER_SIZE);
 
         let base_offset = u64::from_be_bytes(encoded[0..8].try_into().unwrap());
         let batch_length = u32::from_be_bytes(encoded[8..12].try_into().unwrap());
-        let records_count = u32::from_be_bytes(encoded[12..16].try_into().unwrap());
+        // records_count is at offset 57 (HEADER_SIZE - 4) in the full header
+        let records_count = u32::from_be_bytes(encoded[HEADER_SIZE - 4..HEADER_SIZE].try_into().unwrap());
 
         assert_eq!(base_offset, batch.base_offset);
         assert_eq!(batch_length, batch.batch_length);

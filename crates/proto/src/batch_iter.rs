@@ -22,7 +22,7 @@ impl Iterator for BatchIter {
             return None;
         }
 
-        let mut header = [0u8; 16];
+        let mut header = [0u8; BATCH_HEADER_PREFIX];
         if let Err(e) = self.file.read_at(&mut header, self.pos) {
             return Some(Err(ProtoError::Io(e)));
         }
@@ -30,7 +30,7 @@ impl Iterator for BatchIter {
         let _base_offset = u64::from_be_bytes(header[0..8].try_into().unwrap());
         let batch_length = u32::from_be_bytes(header[8..12].try_into().unwrap());
 
-        if self.pos + 16 + (batch_length as u64 - 4) > self.end {
+        if self.pos + BATCH_HEADER_PREFIX as u64 + batch_length as u64 > self.end {
             return None;
         }
 

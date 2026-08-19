@@ -5,7 +5,7 @@ use memmap::{Mmap, MmapOptions};
 use proto::{
     batch_iter::BatchIter, error::ProtoError,
     fetch::request::fetch_partition::FetchPartition,
-    record_batch::{RecordBatch, BATCH_HEADER_PREFIX},
+    record_batch::{RecordBatch, BATCH_HEADER_PREFIX, HEADER_SIZE},
 };
 
 const INDEX_ENTRY_SIZE: usize = 16;
@@ -166,7 +166,8 @@ impl SegmentView {
             }
             let _ = read_u64_at(&self.log, pos)?;
             let batch_length = read_u32_at(&self.log, pos + 8)?;
-            let records_count = read_u32_at(&self.log, pos + BATCH_HEADER_PREFIX as u64)?;
+            // records_count is at offset HEADER_SIZE - 4 = 57 in the full format
+            let records_count = read_u32_at(&self.log, pos + (HEADER_SIZE - 4) as u64)?;
 
             if offset + records_count as u64 > target_offset {
                 break;
@@ -221,7 +222,7 @@ mod tests {
         let record = Record::new(offset_delta, key, val);
         let encoded = record.encode();
         let records = Bytes::from(encoded);
-        let batch_length = 4 + records.len() as u32;
+        let batch_length = 49 + records.len() as u32;
         RecordBatch::from_compact(base_offset, batch_length, 1, records)
     }
 

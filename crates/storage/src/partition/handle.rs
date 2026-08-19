@@ -114,7 +114,7 @@ mod tests {
             encoded.extend(Record::new(i as u64, key, val).encode());
         }
         let records_data = Bytes::from(encoded);
-        let batch_length = 4 + records_data.len() as u32;
+        let batch_length = 49 + records_data.len() as u32;
         RecordBatch::from_compact(base_offset, batch_length, records.len() as u32, records_data)
     }
 
