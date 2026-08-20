@@ -7,3 +7,7 @@ edition = "2024"
 tokio.workspace = true
 async-trait.workspace = true
 rand.workspace = true
+storage.workspace = true
+proto.workspace = true
+network.workspace = true
+broker.workspace = true
