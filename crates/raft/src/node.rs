@@ -10,8 +10,11 @@ pub struct Node<L: RaftLog> {
     pub(crate) voters: Vec<u16>,
     pub(crate) log: L,
 
+    // Persistent
     pub(crate) current_epoch: u32,
     pub(crate) voted_for: Option<u16>,
+
+    // Volatile
     pub(crate) role: Role,
     pub(crate) leader_id: Option<u16>,
     pub(crate) votes_received: HashSet<u16>,
@@ -23,6 +26,7 @@ pub struct Node<L: RaftLog> {
 }
 
 impl<L: RaftLog> Node<L> {
+    // Log is a state machine. Responsibility to load and restore quorum state is engine, which in this case is the runner.
     pub fn new(id: u16, voters: Vec<u16>, quorum_state: QuorumState, log: L) -> Self {
         Self {
             id,
