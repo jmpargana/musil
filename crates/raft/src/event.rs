@@ -1,33 +1,17 @@
-use broker::metadata_record::MetadataRecord;
-use tokio::sync::oneshot;
+use crate::rpc::{
+    BeginQuorumEpochRequest, EndQuorumEpochRequest, FetchRequest, FetchResponse, VoteRequest,
+    VoteResponse,
+};
 
-pub enum RaftEvent {
-    VoteRequest {
-        req: VoteRequest,
-        reply: oneshot::Sender<VoteResponse>,
-    },
-    VoteResponse {
-        from: u16,
-        resp: VoteResponse,
-    },
-    BeginQuorumEpoch {
-        req: BeginQuorumEpochRequest,
-    },
-    EndQuorumEpoch {
-        req: EndQuorumEpochRequest,
-    },
-    FetchRequest {
-        req: FetchRequest,
-        reply: oneshot::Sender<FetchResponse>,
-    },
-    FetchResponse {
-        from: u16,
-        resp: FetchResponse,
-    },
-    Propose {
-        record: MetadataRecord,
-        reply: oneshot::Sender<ProposeResult>,
-    },
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Event {
     ElectionTimeout,
     HeartbeatTimeout,
+    VoteRequest { from: u16, req: VoteRequest },
+    VoteResponse { from: u16, resp: VoteResponse },
+    BeginQuorumEpoch { from: u16, req: BeginQuorumEpochRequest },
+    EndQuorumEpoch { from: u16, req: EndQuorumEpochRequest },
+    FetchRequest { from: u16, req: FetchRequest },
+    FetchResponse { from: u16, resp: FetchResponse },
+    Propose { data: Vec<u8>, propose_id: u64 },
 }

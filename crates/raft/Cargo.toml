@@ -4,10 +4,4 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tokio.workspace = true
-async-trait.workspace = true
-rand.workspace = true
-storage.workspace = true
-proto.workspace = true
-network.workspace = true
-broker.workspace = true
+serde = { workspace = true }
