@@ -1,0 +1,11 @@
+target/
+data*/
+.git/
+.github/
+docs/
+assets/
+learning-records/
+lessons/
+reference/
+*.md
+LICENSE-*

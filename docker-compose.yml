@@ -1,0 +1,107 @@
+services:
+  broker-1:
+    build:
+      context: .
+      args:
+        BINARY: server
+    command: ["-p", "/data", "-c", "/etc/rafka/server.toml"]
+    ports:
+      - "9092:9092"
+    volumes:
+      - broker1-data:/data
+      - ./compose/broker-1.toml:/etc/rafka/server.toml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9092 || exit 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+    networks:
+      - rafka
+
+  broker-2:
+    build:
+      context: .
+      args:
+        BINARY: server
+    command: ["-p", "/data", "-c", "/etc/rafka/server.toml"]
+    ports:
+      - "9093:9092"
+    volumes:
+      - broker2-data:/data
+      - ./compose/broker-2.toml:/etc/rafka/server.toml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9092 || exit 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+    networks:
+      - rafka
+
+  broker-3:
+    build:
+      context: .
+      args:
+        BINARY: server
+    command: ["-p", "/data", "-c", "/etc/rafka/server.toml"]
+    ports:
+      - "9094:9092"
+    volumes:
+      - broker3-data:/data
+      - ./compose/broker-3.toml:/etc/rafka/server.toml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9092 || exit 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+    networks:
+      - rafka
+
+  seeder:
+    build:
+      context: .
+      args:
+        BINARY: seeder
+    command: ["-b", "broker-1:9092,broker-2:9092,broker-3:9092", "-f", "/etc/rafka/seeder.toml"]
+    volumes:
+      - ./seeder.toml:/etc/rafka/seeder.toml:ro
+    depends_on:
+      broker-1:
+        condition: service_healthy
+      broker-2:
+        condition: service_healthy
+      broker-3:
+        condition: service_healthy
+    networks:
+      - rafka
+
+  producer:
+    build:
+      context: .
+      args:
+        BINARY: producer
+    command: ["-b", "broker-1:9092,broker-2:9092,broker-3:9092", "-t", "first_topic"]
+    depends_on:
+      seeder:
+        condition: service_completed_successfully
+    networks:
+      - rafka
+
+  consumer:
+    build:
+      context: .
+      args:
+        BINARY: consumer
+    command: ["-b", "broker-1:9092,broker-2:9092,broker-3:9092", "-t", "first_topic", "-o", "0"]
+    depends_on:
+      seeder:
+        condition: service_completed_successfully
+    networks:
+      - rafka
+
+volumes:
+  broker1-data:
+  broker2-data:
+  broker3-data:
+
+networks:
+  rafka:
