@@ -1,8 +1,8 @@
-# rafka
+# musil
 
-[![CI](https://github.com/jmpargana/rafka/actions/workflows/ci.yml/badge.svg)](https://github.com/jmpargana/rafka/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/jmpargana/rafka/branch/main/graph/badge.svg)](https://codecov.io/gh/jmpargana/rafka)
-[![crates.io](https://img.shields.io/crates/v/rafka-proto.svg)](https://crates.io/crates/rafka-proto)
+[![CI](https://github.com/jmpargana/musil/actions/workflows/ci.yml/badge.svg)](https://github.com/jmpargana/musil/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/jmpargana/musil/branch/main/graph/badge.svg)](https://codecov.io/gh/jmpargana/musil)
+[![crates.io](https://img.shields.io/crates/v/musil-proto.svg)](https://crates.io/crates/musil-proto)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE-MIT)
 
 A Kafka-compatible message broker implemented in Rust.

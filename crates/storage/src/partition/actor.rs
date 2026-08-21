@@ -298,7 +298,7 @@ mod tests {
     use crate::replica::ReplicaMetadata;
 
     fn make_dir() -> TempDir {
-        TempDir::new("rafka-actor-test").unwrap()
+        TempDir::new("musil-actor-test").unwrap()
     }
 
     fn make_batch(base_offset: u64, records_count: u32, payload: &[u8]) -> RecordBatch {

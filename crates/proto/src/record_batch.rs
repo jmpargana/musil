@@ -454,7 +454,7 @@ mod tests {
         let record = Record::new(0, b"file", b"record");
         let raw = encoded_batch_bytes(55, &[record.clone()]);
 
-        let dir = std::env::temp_dir().join("rafka-proto-test");
+        let dir = std::env::temp_dir().join("musil-proto-test");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("batch.bin");
         let mut f = std::fs::File::create(&path).unwrap();

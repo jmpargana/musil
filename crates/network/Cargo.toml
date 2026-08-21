@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Network layer for rafka message broker"
+description = "Network layer for musil message broker"
 
 [dependencies]
 proto = { path = "../proto", version = "0.1.0" }

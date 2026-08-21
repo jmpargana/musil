@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Log-structured storage engine for rafka"
+description = "Log-structured storage engine for musil"
 
 [dependencies]
 proto = { path = "../proto", version = "0.1.0" }

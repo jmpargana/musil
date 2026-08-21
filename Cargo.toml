@@ -1,5 +1,5 @@
 [package]
-name = "rafka"
+name = "musil"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -16,7 +16,7 @@ members = [
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/jmpargana/rafka"
+repository = "https://github.com/jmpargana/musil"
 
 [workspace.dependencies]
 arc-swap = "1.9.2"

@@ -70,7 +70,7 @@ jobs:
           VERSION=${{ needs.release-please.outputs.version }}
           TARGET=${{ matrix.target }}
           for bin in server consumer producer seeder; do
-            ARCHIVE="rafka-${bin}-${VERSION}-${TARGET}.tar.gz"
+            ARCHIVE="musil-${bin}-${VERSION}-${TARGET}.tar.gz"
             tar -czf "${ARCHIVE}" -C target/${TARGET}/release ${bin}
             echo "${ARCHIVE}" >> artifacts.txt
           done
@@ -111,8 +111,8 @@ jobs:
           build-args: BINARY=${{ matrix.binary }}
           platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/jmpargana/rafka-${{ matrix.binary }}:latest
-            ghcr.io/jmpargana/rafka-${{ matrix.binary }}:${{ needs.release-please.outputs.version }}
+            ghcr.io/jmpargana/musil-${{ matrix.binary }}:latest
+            ghcr.io/jmpargana/musil-${{ matrix.binary }}:${{ needs.release-please.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

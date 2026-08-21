@@ -63,10 +63,10 @@ miri:
 # === Docker ===
 
 docker-build binary:
-    docker build --build-arg BINARY={{binary}} -t ghcr.io/jmpargana/rafka-{{binary}}:latest .
+    docker build --build-arg BINARY={{binary}} -t ghcr.io/jmpargana/musil-{{binary}}:latest .
 
 docker-push binary:
-    docker push ghcr.io/jmpargana/rafka-{{binary}}:latest
+    docker push ghcr.io/jmpargana/musil-{{binary}}:latest
 
 docker-build-all:
     just docker-build server
@@ -94,10 +94,10 @@ integration-test: compose-up
 # === OrbStack (macOS containers) ===
 
 orb-up:
-    orb start rafka-dev
+    orb start musil-dev
 
 orb-down:
-    orb stop rafka-dev
+    orb stop musil-dev
 
 # === Release (local) ===
 

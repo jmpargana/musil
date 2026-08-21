@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Async runtime for rafka raft consensus"
+description = "Async runtime for musil raft consensus"
 
 [dependencies]
 raft.workspace = true

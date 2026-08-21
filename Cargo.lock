@@ -654,6 +654,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fb585ade2549a017db2e35978b77c319214fa4b37cede841e27954dd6e8f3ca8"
 
 [[package]]
+name = "musil"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "broker",
+ "bytes",
+ "clap",
+ "config",
+ "consumer",
+ "crc-fast",
+ "flate2",
+ "murmur2",
+ "network",
+ "producer",
+ "rand 0.9.5",
+ "serde",
+ "storage",
+ "tempdir",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "tracing-log",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "network"
 version = "0.1.0"
 dependencies = [
@@ -848,32 +874,6 @@ name = "r-efi"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
-
-[[package]]
-name = "rafka"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "broker",
- "bytes",
- "clap",
- "config",
- "consumer",
- "crc-fast",
- "flate2",
- "murmur2",
- "network",
- "producer",
- "rand 0.9.5",
- "serde",
- "storage",
- "tempdir",
- "tokio",
- "tokio-stream",
- "tracing",
- "tracing-log",
- "tracing-subscriber",
-]
 
 [[package]]
 name = "raft"

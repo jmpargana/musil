@@ -4,66 +4,66 @@ services:
       context: .
       args:
         BINARY: server
-    command: ["-p", "/data", "-c", "/etc/rafka/server.toml"]
+    command: ["-p", "/data", "-c", "/etc/musil/server.toml"]
     ports:
       - "9092:9092"
     volumes:
       - broker1-data:/data
-      - ./compose/broker-1.toml:/etc/rafka/server.toml:ro
+      - ./compose/broker-1.toml:/etc/musil/server.toml:ro
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost 9092 || exit 1"]
       interval: 2s
       timeout: 5s
       retries: 10
     networks:
-      - rafka
+      - musil
 
   broker-2:
     build:
       context: .
       args:
         BINARY: server
-    command: ["-p", "/data", "-c", "/etc/rafka/server.toml"]
+    command: ["-p", "/data", "-c", "/etc/musil/server.toml"]
     ports:
       - "9093:9092"
     volumes:
       - broker2-data:/data
-      - ./compose/broker-2.toml:/etc/rafka/server.toml:ro
+      - ./compose/broker-2.toml:/etc/musil/server.toml:ro
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost 9092 || exit 1"]
       interval: 2s
       timeout: 5s
       retries: 10
     networks:
-      - rafka
+      - musil
 
   broker-3:
     build:
       context: .
       args:
         BINARY: server
-    command: ["-p", "/data", "-c", "/etc/rafka/server.toml"]
+    command: ["-p", "/data", "-c", "/etc/musil/server.toml"]
     ports:
       - "9094:9092"
     volumes:
       - broker3-data:/data
-      - ./compose/broker-3.toml:/etc/rafka/server.toml:ro
+      - ./compose/broker-3.toml:/etc/musil/server.toml:ro
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost 9092 || exit 1"]
       interval: 2s
       timeout: 5s
       retries: 10
     networks:
-      - rafka
+      - musil
 
   seeder:
     build:
       context: .
       args:
         BINARY: seeder
-    command: ["-b", "broker-1:9092,broker-2:9092,broker-3:9092", "-f", "/etc/rafka/seeder.toml"]
+    command: ["-b", "broker-1:9092,broker-2:9092,broker-3:9092", "-f", "/etc/musil/seeder.toml"]
     volumes:
-      - ./seeder.toml:/etc/rafka/seeder.toml:ro
+      - ./seeder.toml:/etc/musil/seeder.toml:ro
     depends_on:
       broker-1:
         condition: service_healthy
@@ -72,7 +72,7 @@ services:
       broker-3:
         condition: service_healthy
     networks:
-      - rafka
+      - musil
 
   producer:
     build:
@@ -84,7 +84,7 @@ services:
       seeder:
         condition: service_completed_successfully
     networks:
-      - rafka
+      - musil
 
   consumer:
     build:
@@ -96,7 +96,7 @@ services:
       seeder:
         condition: service_completed_successfully
     networks:
-      - rafka
+      - musil
 
 volumes:
   broker1-data:
@@ -104,4 +104,4 @@ volumes:
   broker3-data:
 
 networks:
-  rafka:
+  musil:
