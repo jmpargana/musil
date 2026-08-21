@@ -1,0 +1,15 @@
+[tools]
+rust = "stable"
+"rust:nightly" = "nightly"
+just = "latest"
+"cargo:cargo-llvm-cov" = "latest"
+"cargo:cargo-deny" = "latest"
+"cargo:cargo-audit" = "latest"
+"cargo:cargo-chef" = "latest"
+"npm:@anthropic-ai/claude-code" = "latest"
+
+[tools.act]
+version = "latest"
+
+[env]
+CARGO_TERM_COLOR = "always"
