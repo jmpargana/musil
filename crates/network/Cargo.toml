@@ -10,7 +10,7 @@ description = "Network layer for musil message broker"
 proto = { path = "../proto", version = "0.1.0" }
 bytes = "1"
 derive_builder = "0.20"
-rand = "0.9"
+rand = "0.10"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"

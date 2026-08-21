@@ -12,7 +12,7 @@ arc-swap = "1"
 bytes = "1"
 derive_builder = "0.20"
 memmap = "0.7"
-rand = "0.9"
+rand = "0.10"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 raft.workspace = true
