@@ -1,18 +1,8 @@
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LogEntry {
     pub epoch: u32,
     pub offset: u64,
     pub data: Vec<u8>,
-}
-
-impl Default for LogEntry {
-    fn default() -> Self {
-        Self {
-            epoch: Default::default(),
-            offset: Default::default(),
-            data: Default::default(),
-        }
-    }
 }
 
 pub trait RaftLog {

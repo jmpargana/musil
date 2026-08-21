@@ -1,7 +1,9 @@
 use std::time::Duration;
 
 use bytes::{Buf, Bytes};
+use proto::{error::ProtoError, record_batch::RecordBatch};
 
+use super::{body::FrameBody, error_codes::ErrorCode};
 use crate::protocol::{
     Frame,
     fetch::{
@@ -31,9 +33,6 @@ use crate::protocol::{
         },
     },
 };
-use proto::{error::ProtoError, record_batch::RecordBatch};
-
-use super::{body::FrameBody, error_codes::ErrorCode};
 
 #[derive(Debug)]
 pub struct RequestDecoder;
@@ -94,7 +93,7 @@ impl RequestDecoder {
         for _ in 0..topic_size as usize {
             let topic_name_length = buf.get_u16();
             let bytes = buf.split_to(topic_name_length as usize);
-            let topic = String::from_utf8_lossy(&bytes.to_vec()).to_string();
+            let topic = String::from_utf8_lossy(&bytes).to_string();
 
             let partition_length = buf.get_u32();
             let mut partitions = Vec::new();
@@ -102,7 +101,8 @@ impl RequestDecoder {
                 let partition_id = buf.get_u16();
                 let _batch_len = buf.get_u32();
                 let batch_bytes = buf.split_to(_batch_len as usize);
-                let record_batch = RecordBatch::decode(batch_bytes).map_err(ParseError::InvalidBatch)?;
+                let record_batch =
+                    RecordBatch::decode(batch_bytes).map_err(ParseError::InvalidBatch)?;
 
                 partitions.push(ProducePartition {
                     index: partition_id,
@@ -380,7 +380,10 @@ impl ResponseDecoder {
                     combined.extend_from_slice(&base_offset.to_be_bytes());
                     combined.extend_from_slice(&batch_length.to_be_bytes());
                     combined.extend_from_slice(&payload);
-                    records.push(RecordBatch::decode(Bytes::from(combined)).map_err(ParseError::InvalidBatch)?);
+                    records.push(
+                        RecordBatch::decode(Bytes::from(combined))
+                            .map_err(ParseError::InvalidBatch)?,
+                    );
                 }
                 partitions.push(PartitionResponse {
                     partition_index,

@@ -16,7 +16,7 @@ impl FetchResponse {
 
 impl fmt::Display for FetchResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for t in self.responses.iter() {
+        for t in &self.responses {
             write!(f, "{t}")?;
         }
         Ok(())

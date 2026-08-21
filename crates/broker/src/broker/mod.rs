@@ -6,11 +6,6 @@ use std::{
 };
 
 use arc_swap::ArcSwap;
-use tokio::{
-    sync::mpsc::{self, channel},
-    task::JoinHandle,
-};
-
 use network::protocol::{
     Frame,
     body::FrameBody,
@@ -26,6 +21,10 @@ use network::protocol::{
     },
 };
 use storage::{partition::handle::PartitionHandle, topic::TopicPartition};
+use tokio::{
+    sync::mpsc::{self, channel},
+    task::JoinHandle,
+};
 
 use crate::broker::{
     actor::MetadataActor,
@@ -45,6 +44,7 @@ pub struct Broker {
     pub config: BrokerConfig,
     brokers: Vec<BrokerConfig>,
     tx: mpsc::Sender<MetadataCommand>,
+    #[allow(dead_code)]
     join: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -160,7 +160,7 @@ impl Broker {
         for t in body.topics {
             let mut part_responses = Vec::new();
             for p in t.partitions {
-                let part_res = match self.partition(&t.topic, p.index as u16) {
+                let part_res = match self.partition(&t.topic, p.index) {
                     Some(partition) => partition.append(p.records, body.acks).await,
                     None => ProducePartitionResponse::error(
                         p.index as u32,
@@ -288,24 +288,28 @@ mod tests {
     use std::collections::HashMap;
 
     use bytes::Bytes;
-
-    use network::protocol::Frame;
-    use network::protocol::body::FrameBody;
-    use network::protocol::error_codes::ErrorCode;
-    use network::protocol::fetch::request::fetch_partition::FetchPartition;
-    use network::protocol::fetch::request::fetch_request::FetchRequest;
-    use network::protocol::fetch::request::fetch_topic::FetchTopic;
-    use network::protocol::header::{ApiKey, RequestHeaderBuilder};
-    use network::protocol::produce::acks::Acks;
-    use network::protocol::produce::request::produce_partition::ProducePartition;
-    use network::protocol::produce::request::produce_request::ProduceRequest;
-    use network::protocol::produce::request::produce_topic::ProduceTopic;
-    use network::protocol::produce::response::produce_response::ProduceResponse;
-    use proto::record::Record;
-    use proto::record_batch::RecordBatch;
-    use storage::partition::config::PartitionConfigBuilder;
-    use storage::partition::handle::PartitionHandle;
-    use storage::topic::TopicPartition;
+    use network::protocol::{
+        Frame,
+        body::FrameBody,
+        error_codes::ErrorCode,
+        fetch::request::{
+            fetch_partition::FetchPartition, fetch_request::FetchRequest, fetch_topic::FetchTopic,
+        },
+        header::{ApiKey, RequestHeaderBuilder},
+        produce::{
+            acks::Acks,
+            request::{
+                produce_partition::ProducePartition, produce_request::ProduceRequest,
+                produce_topic::ProduceTopic,
+            },
+            response::produce_response::ProduceResponse,
+        },
+    };
+    use proto::{record::Record, record_batch::RecordBatch};
+    use storage::{
+        partition::{config::PartitionConfigBuilder, handle::PartitionHandle},
+        topic::TopicPartition,
+    };
 
     use super::Broker;
 

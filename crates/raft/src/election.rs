@@ -1,14 +1,15 @@
-use crate::action::Action;
-use crate::log::RaftLog;
-use crate::node::Node;
-use crate::rpc::{BeginQuorumEpochRequest, EndQuorumEpochRequest, VoteRequest, VoteResponse};
-use crate::state::Role;
+use crate::{
+    action::Action,
+    log::RaftLog,
+    node::Node,
+    rpc::{BeginQuorumEpochRequest, EndQuorumEpochRequest, VoteRequest, VoteResponse},
+    state::Role,
+};
 
 impl<L: RaftLog> Node<L> {
     pub(crate) fn handle_election_timeout(&mut self) -> Vec<Action> {
-        match self.role {
-            Role::Leader => return vec![],
-            _ => {}
+        if self.role == Role::Leader {
+            return vec![];
         }
 
         self.current_epoch += 1;
@@ -17,10 +18,7 @@ impl<L: RaftLog> Node<L> {
         self.votes_received.clear();
         self.votes_received.insert(self.id);
 
-        let mut actions = vec![
-            Action::PersistQuorumState,
-            Action::ResetElectionTimer,
-        ];
+        let mut actions = vec![Action::PersistQuorumState, Action::ResetElectionTimer];
 
         if self.votes_received.len() >= self.majority() {
             actions.extend(self.become_leader());
@@ -136,10 +134,7 @@ impl<L: RaftLog> Node<L> {
     ) -> Vec<Action> {
         if req.epoch >= self.current_epoch {
             self.become_follower(req.epoch, None);
-            let mut actions = vec![
-                Action::PersistQuorumState,
-                Action::ResetElectionTimer,
-            ];
+            let mut actions = vec![Action::PersistQuorumState, Action::ResetElectionTimer];
             actions.extend(self.reject_pending_proposes());
             return actions;
         }
@@ -157,7 +152,12 @@ impl<L: RaftLog> Node<L> {
             }
         }
 
-        let targets: Vec<u16> = self.voters.iter().copied().filter(|&v| v != self.id).collect();
+        let targets: Vec<u16> = self
+            .voters
+            .iter()
+            .copied()
+            .filter(|&v| v != self.id)
+            .collect();
 
         vec![
             Action::ResetHeartbeatTimer,
@@ -175,10 +175,10 @@ impl<L: RaftLog> Node<L> {
         let my_epoch = self.log.last_epoch();
         let my_offset = self.log.log_end_offset();
 
-        if candidate_epoch != my_epoch {
-            candidate_epoch > my_epoch
-        } else {
+        if candidate_epoch == my_epoch {
             candidate_offset >= my_offset
+        } else {
+            candidate_epoch > my_epoch
         }
     }
 }

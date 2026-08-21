@@ -74,7 +74,7 @@ impl ProducerActor {
 
                             if !timer_active {
                                 timer.as_mut().reset(
-                                    ((Instant::now() + Duration::from_millis(self.config.ms_wait).into())).into()
+                                    (Instant::now() + Duration::from_millis(self.config.ms_wait)).into()
                                 );
                                 timer_active = true;
                             }
@@ -101,7 +101,7 @@ impl ProducerActor {
                     }
                 }
 
-                _ = &mut timer, if timer_active && batch.len() > 0 => {
+                _ = &mut timer, if timer_active && !batch.is_empty() => {
                     info!(message="Tired of waiting. Sending batch request");
                     let batch_to_publish = std::mem::take(&mut batch);
                     self.publish(batch_to_publish).await.unwrap();
@@ -126,19 +126,15 @@ impl ProducerActor {
         self.stream
             .write_all(&produce_request.encode())
             .await
-            .map_err(|e| ProducerError::IoErr(e))?;
+            .map_err(ProducerError::IoErr)?;
 
-        let response_size = self
-            .stream
-            .read_u32()
-            .await
-            .map_err(|e| ProducerError::IoErr(e))?;
+        let response_size = self.stream.read_u32().await.map_err(ProducerError::IoErr)?;
         let mut buf = BytesMut::zeroed(response_size as usize);
 
         self.stream
             .read_exact(&mut buf)
             .await
-            .map_err(|e| ProducerError::IoErr(e))?;
+            .map_err(ProducerError::IoErr)?;
 
         let produce_response = Frame::decode_response(&buf.freeze(), response_size)
             .map_err(|_| ProducerError::ParseErr)?;
@@ -173,7 +169,7 @@ impl ProducerActor {
             .topics
             .iter()
             .find(|t| t.name == payload.topic)
-            .ok_or_else(|| ProducerError::UnknownTopicErr)?;
+            .ok_or(ProducerError::UnknownTopicErr)?;
 
         let idx = match payload.key {
             Some(ref key) => {

@@ -1,4 +1,5 @@
 use bytes::{BufMut, Bytes, BytesMut};
+use rand::Rng;
 
 use crate::protocol::{
     body::FrameBody,
@@ -6,8 +7,6 @@ use crate::protocol::{
     header::{ApiKey, RequestHeader},
     produce::request::produce_request::ProduceRequest,
 };
-
-use rand::Rng;
 
 pub mod body;
 pub mod codec;
@@ -78,7 +77,7 @@ impl Frame {
                     buf.put_slice(t.topic.as_bytes());
                     buf.put_u32(t.partitions.len() as u32);
                     for p in &t.partitions {
-                        buf.put_u16(p.index as u16);
+                        buf.put_u16(p.index);
                         let header = p.records.encode_header();
                         let batch_len = (header.len() + p.records.records.len()) as u32;
                         buf.put_u32(batch_len);
@@ -193,7 +192,7 @@ impl Frame {
                 for b in &res.brokers {
                     buf.put_i32(b.node_id);
                     buf.put_u16(b.host.len() as u16);
-                    buf.put_slice(&b.host.as_bytes());
+                    buf.put_slice(b.host.as_bytes());
                     buf.put_i32(b.port);
                 }
                 buf.put_i32(res.controller_id);

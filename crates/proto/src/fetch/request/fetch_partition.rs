@@ -1,5 +1,3 @@
-use std::u32;
-
 #[derive(Debug)]
 pub struct FetchPartition {
     pub partition: u32,
@@ -9,7 +7,6 @@ pub struct FetchPartition {
 }
 
 impl FetchPartition {
-    // TODO: Hardcoded to work with Raft. The default values might not work with other flows.
     pub fn from(fetch_offset: u64) -> Self {
         Self {
             partition: 0,

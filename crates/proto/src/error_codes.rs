@@ -147,6 +147,7 @@ impl From<ErrorCode> for i16 {
 impl TryFrom<i16> for ErrorCode {
     type Error = i16;
 
+    #[allow(clippy::too_many_lines)]
     fn try_from(value: i16) -> Result<Self, Self::Error> {
         match value {
             -1 => Ok(Self::UnknownServerError),

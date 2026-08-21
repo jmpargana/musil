@@ -1,6 +1,7 @@
 use std::{io::Error, sync::Arc};
 
 use bytes::BytesMut;
+use network::protocol::{Frame, codec::ParseError};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
@@ -8,7 +9,6 @@ use tokio::{
 use tracing::info;
 
 use crate::broker::Broker;
-use network::protocol::{Frame, codec::ParseError};
 
 pub struct Connection {
     pub stream: TcpStream,
@@ -74,12 +74,6 @@ mod tests {
     use std::{collections::HashMap, sync::Arc, time::Duration};
 
     use bytes::{Bytes, BytesMut};
-    use tokio::{
-        io::{AsyncReadExt, AsyncWriteExt},
-        net::TcpListener,
-    };
-
-    use crate::broker::Broker;
     use network::protocol::{
         Frame,
         body::FrameBody,
@@ -97,8 +91,13 @@ mod tests {
         partition::{config::PartitionConfigBuilder, handle::PartitionHandle},
         topic::TopicPartition,
     };
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
 
     use super::Connection;
+    use crate::broker::Broker;
 
     fn make_broker(topic: &str, partition_id: u16) -> Arc<Broker> {
         let dir = tempdir::TempDir::new("conn-test").unwrap();

@@ -1,11 +1,10 @@
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::time::Duration;
-
-use tokio::sync::{mpsc, oneshot};
-use tokio::time::{self, Interval};
+use std::{collections::HashMap, path::PathBuf, time::Duration};
 
 use raft::{Action, Event, Node, QuorumState, RaftLog};
+use tokio::{
+    sync::{mpsc, oneshot},
+    time::{self, Interval},
+};
 
 use crate::transport::{RaftMessage, RunnerInput, Transport};
 

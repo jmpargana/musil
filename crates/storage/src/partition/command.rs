@@ -1,10 +1,9 @@
-use tokio::sync::oneshot;
-
 use proto::{
     produce::{acks::Acks, response::partition_response::ProducePartitionResponse},
     record::Record,
     record_batch::RecordBatch,
 };
+use tokio::sync::oneshot;
 
 pub enum PartitionCommand {
     Append {

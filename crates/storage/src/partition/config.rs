@@ -21,6 +21,10 @@ pub struct PartitionConfig {
 }
 
 impl PartitionConfig {
-    fn default_segment_bytes() -> usize { 1 << 20 }
-    fn default_channel_size() -> usize { 1 << 16 }
+    fn default_segment_bytes() -> usize {
+        1 << 20
+    }
+    fn default_channel_size() -> usize {
+        1 << 16
+    }
 }

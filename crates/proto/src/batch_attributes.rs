@@ -1,27 +1,21 @@
 #[derive(Debug, Clone, Copy)]
 pub struct BatchAttributes(pub u16);
 
-/**
- * Source: https://kafka.apache.org/43/implementation/message-format/
-*  bit 0~2:
-       0: no compression
-       1: gzip
-       2: snappy
-       3: lz4
-       4: zstd
-   bit 3: timestampType
-   bit 4: isTransactional (0 means not transactional)
-   bit 5: isControlBatch (0 means not a control batch)
-   bit 6: hasDeleteHorizonMs (0 means baseTimestamp is not set as the delete horizon for compaction)
-   bit 7~15: unused
-*/
-
+/// Source: <https://kafka.apache.org/43/implementation/message-format/>
+///
+/// - bit 0~2: compression (0=none, 1=gzip, 2=snappy, 3=lz4, 4=zstd)
+/// - bit 3: timestampType
+/// - bit 4: isTransactional (0 means not transactional)
+/// - bit 5: isControlBatch (0 means not a control batch)
+/// - bit 6: hasDeleteHorizonMs (0 means baseTimestamp is not set as the delete horizon for compaction)
+/// - bit 7~15: unused
 impl BatchAttributes {
-    // only first 3 bits
     const COMPRESSION_MASK: u16 = 0b111;
+    #[allow(dead_code)]
     const TIMESTAMP_TYPE: u16 = 1 << 3;
     const TRANSACTIONAL: u16 = 1 << 4;
     const CONTROL: u16 = 1 << 5;
+    #[allow(dead_code)]
     const DELETE_HORIZON: u16 = 1 << 6;
 
     pub fn compression(self) -> Compression {

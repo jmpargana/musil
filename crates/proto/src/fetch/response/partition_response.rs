@@ -1,7 +1,4 @@
-use core::fmt;
-
-use crate::error_codes::ErrorCode;
-use crate::record_batch::RecordBatch;
+use crate::{error_codes::ErrorCode, record_batch::RecordBatch};
 
 #[derive(Debug)]
 pub struct PartitionResponse {
@@ -24,6 +21,6 @@ impl PartitionResponse {
     }
 
     pub fn get_size(&self) -> u32 {
-        4 + 2 + 8 + 8 + 4 + self.records.iter().map(|b| b.get_size()).sum::<u32>()
+        4 + 2 + 8 + 8 + 4 + self.records.iter().map(RecordBatch::get_size).sum::<u32>()
     }
 }

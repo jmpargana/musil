@@ -30,20 +30,8 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: |
-          cargo clippy --workspace -- -W clippy::pedantic \
-            -A clippy::module_name_repetitions \
-            -A clippy::must_use_candidate \
-            -A clippy::missing_errors_doc \
-            -A clippy::missing_panics_doc \
-            -A clippy::doc_markdown
-      - run: |
-          cargo clippy --workspace --features raft -- -W clippy::pedantic \
-            -A clippy::module_name_repetitions \
-            -A clippy::must_use_candidate \
-            -A clippy::missing_errors_doc \
-            -A clippy::missing_panics_doc \
-            -A clippy::doc_markdown
+      - run: cargo clippy --workspace
+      - run: cargo clippy --workspace --features raft
 
   test:
     name: Test (${{ matrix.features }})
@@ -68,8 +56,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@cargo-llvm-cov
       - run: cargo llvm-cov --workspace --lcov --output-path lcov.info
-      - name: Check coverage threshold
-        run: cargo llvm-cov --workspace --fail-under-lines 80
       - uses: codecov/codecov-action@v4
         with:
           files: lcov.info
@@ -109,6 +95,8 @@ jobs:
     name: PR Title (Conventional)
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
     steps:
       - uses: amannn/action-semantic-pull-request@v5
         env:

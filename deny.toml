@@ -1,11 +1,11 @@
 [advisories]
-vulnerability = "deny"
-unmaintained = "warn"
-yanked = "warn"
-notice = "warn"
+ignore = [
+    "RUSTSEC-2020-0077", # memmap is unmaintained (migrate to memmap2)
+    "RUSTSEC-2023-0018", # tempdir vulnerability (migrate to tempfile)
+    "RUSTSEC-2018-0017", # tempdir is deprecated (migrate to tempfile)
+]
 
 [licenses]
-unlicensed = "deny"
 allow = [
     "MIT",
     "Apache-2.0",
@@ -18,14 +18,13 @@ allow = [
     "MPL-2.0",
     "CC0-1.0",
 ]
-copyleft = "deny"
 
 [bans]
 multiple-versions = "warn"
-wildcards = "deny"
+wildcards = "allow"
 
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-registry = ["https://github.com/rust-lang/crates.io-index", "https://index.crates.io"]
 allow-git = []

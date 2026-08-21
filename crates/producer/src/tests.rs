@@ -7,8 +7,7 @@ use network::protocol::{
     header::ApiKey,
     metadata::{BrokerMetadata, MetadataResponse, PartitionMetadata, TopicMetadata},
     produce::response::{
-        partition_response::ProducePartitionResponse,
-        produce_response::ProduceResponse,
+        partition_response::ProducePartitionResponse, produce_response::ProduceResponse,
         topic_response::ProduceTopicResponse,
     },
 };
@@ -46,7 +45,11 @@ fn make_metadata(topic: &str, num_partitions: usize) -> MetadataResponse {
 
     MetadataResponse {
         throttle_time_ms: 0,
-        brokers: vec![BrokerMetadata { node_id: 0, host: "localhost".into(), port: 9092 }],
+        brokers: vec![BrokerMetadata {
+            node_id: 0,
+            host: "localhost".into(),
+            port: 9092,
+        }],
         controller_id: 0,
         topics: vec![TopicMetadata {
             error_code: ErrorCode::None,
@@ -149,14 +152,23 @@ mod error_tests {
         assert!(matches!(ProducerError::ParseErr, ProducerError::ParseErr));
         assert!(matches!(ProducerError::FormatErr, ProducerError::FormatErr));
         assert!(matches!(ProducerError::ClientErr, ProducerError::ClientErr));
-        assert!(matches!(ProducerError::UnknownTopicErr, ProducerError::UnknownTopicErr));
-        assert!(matches!(ProducerError::ChanClosed, ProducerError::ChanClosed));
+        assert!(matches!(
+            ProducerError::UnknownTopicErr,
+            ProducerError::UnknownTopicErr
+        ));
+        assert!(matches!(
+            ProducerError::ChanClosed,
+            ProducerError::ChanClosed
+        ));
     }
 
     #[test]
     fn io_err_wraps_inner() {
         let inner = std::io::Error::new(std::io::ErrorKind::BrokenPipe, "pipe");
-        assert!(matches!(ProducerError::IoErr(inner), ProducerError::IoErr(_)));
+        assert!(matches!(
+            ProducerError::IoErr(inner),
+            ProducerError::IoErr(_)
+        ));
     }
 
     #[tokio::test]
@@ -304,7 +316,9 @@ mod batcher_tests {
     async fn sync_publishes_immediately() {
         let (mut actor, tx) = make_actor("topic", 10_000, 1_000_000).await;
 
-        tx.send(ProducerCommand::Sync(payload("topic", None, "direct"))).await.unwrap();
+        tx.send(ProducerCommand::Sync(payload("topic", None, "direct")))
+            .await
+            .unwrap();
         tx.send(ProducerCommand::Shutdown).await.unwrap();
 
         timeout(Duration::from_secs(2), async move { actor.batcher().await })
@@ -320,7 +334,9 @@ mod batcher_tests {
         let (mut actor, tx) = make_actor("topic", 60_000, 1).await;
 
         for _ in 0..3 {
-            tx.send(ProducerCommand::Async(payload("topic", None, "x"))).await.unwrap();
+            tx.send(ProducerCommand::Async(payload("topic", None, "x")))
+                .await
+                .unwrap();
         }
         tx.send(ProducerCommand::Shutdown).await.unwrap();
 
@@ -335,7 +351,9 @@ mod batcher_tests {
         // 50ms timer, huge max_bytes so size never triggers.
         let (mut actor, tx) = make_actor("topic", 50, 1_000_000).await;
 
-        tx.send(ProducerCommand::Async(payload("topic", None, "timed"))).await.unwrap();
+        tx.send(ProducerCommand::Async(payload("topic", None, "timed")))
+            .await
+            .unwrap();
         // Don't send Shutdown — wait for batcher to publish via timer, then shut down.
         let handle = tokio::spawn(async move { actor.batcher().await });
 
@@ -344,7 +362,10 @@ mod batcher_tests {
         // Now shut it down.
         tx.send(ProducerCommand::Shutdown).await.unwrap();
 
-        timeout(Duration::from_secs(2), handle).await.expect("batcher timeout").unwrap();
+        timeout(Duration::from_secs(2), handle)
+            .await
+            .expect("batcher timeout")
+            .unwrap();
     }
 
     /// With a long timer and large max_bytes, a single small Async message must
@@ -354,7 +375,9 @@ mod batcher_tests {
         // 10s timer, huge max_bytes.
         let (mut actor, tx) = make_actor("topic", 10_000, 1_000_000).await;
 
-        tx.send(ProducerCommand::Async(payload("topic", None, "small"))).await.unwrap();
+        tx.send(ProducerCommand::Async(payload("topic", None, "small")))
+            .await
+            .unwrap();
 
         // The batcher should NOT have called publish yet. Shut it down quickly.
         let handle = tokio::spawn(async move { actor.batcher().await });
@@ -363,7 +386,10 @@ mod batcher_tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         tx.send(ProducerCommand::Shutdown).await.unwrap();
-        timeout(Duration::from_secs(2), handle).await.expect("batcher timeout").unwrap();
+        timeout(Duration::from_secs(2), handle)
+            .await
+            .expect("batcher timeout")
+            .unwrap();
     }
 
     /// Shutdown flushes any buffered records before exiting.
@@ -373,9 +399,13 @@ mod batcher_tests {
         let (mut actor, tx) = make_actor("topic", 60_000, 1_000_000).await;
 
         for i in 0..5 {
-            tx.send(ProducerCommand::Async(payload("topic", None, &i.to_string())))
-                .await
-                .unwrap();
+            tx.send(ProducerCommand::Async(payload(
+                "topic",
+                None,
+                &i.to_string(),
+            )))
+            .await
+            .unwrap();
         }
         tx.send(ProducerCommand::Shutdown).await.unwrap();
 

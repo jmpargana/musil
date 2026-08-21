@@ -64,7 +64,7 @@ impl From<Vec<Record>> for RecordBatch {
         let mut base_timestamp = u64::MAX;
         let mut max_timestamp = 0;
 
-        for r in value.iter() {
+        for r in &value {
             if r.timestamp_delta < base_timestamp {
                 base_timestamp = r.timestamp_delta;
             }
@@ -76,7 +76,7 @@ impl From<Vec<Record>> for RecordBatch {
         for (i, mut r) in value.into_iter().enumerate() {
             // TODO: change timestamp as well based on base
             r.offset_delta = i as u64;
-            r.timestamp_delta = r.timestamp_delta - base_timestamp;
+            r.timestamp_delta -= base_timestamp;
             r.encode_to(&mut buf);
         }
 
@@ -109,7 +109,12 @@ impl RecordBatch {
     /// Construct from records bytes, setting all header fields to sensible defaults.
     /// The `_batch_length` parameter is ignored; batch_length is always recomputed as
     /// `BATCH_PAYLOAD_HEADER + records.len()` to match the full 61-byte header format.
-    pub fn from_compact(base_offset: u64, _batch_length: u32, records_count: u32, records: Bytes) -> Self {
+    pub fn from_compact(
+        base_offset: u64,
+        _batch_length: u32,
+        records_count: u32,
+        records: Bytes,
+    ) -> Self {
         let crc = crc_fast::crc32_iscsi(&records);
         let batch_length = BATCH_PAYLOAD_HEADER as u32 + records.len() as u32;
         Self {
@@ -168,7 +173,8 @@ impl RecordBatch {
         let batch_length = u32::from_be_bytes(prefix[8..12].try_into().unwrap());
 
         let mut payload = vec![0u8; batch_length as usize];
-        file.read_at(&mut payload, pos + BATCH_HEADER_PREFIX as u64).unwrap();
+        file.read_at(&mut payload, pos + BATCH_HEADER_PREFIX as u64)
+            .unwrap();
 
         let partition_leader_epoch = i32::from_be_bytes(payload[0..4].try_into().unwrap());
         let magic = payload[4];
@@ -249,7 +255,7 @@ impl RecordBatch {
 
     pub fn find_record(&self, offset_delta: u64) -> Option<RecordRef> {
         self.record_refs()
-            .filter_map(|r| r.ok())
+            .filter_map(Result::ok)
             .find(|r| r.offset_delta == offset_delta)
     }
 
@@ -318,7 +324,7 @@ impl RecordBatch {
         let records = buf;
         if crc_fast::crc32_iscsi(&records) != crc {
             return Err(ProtoError::CRC);
-        };
+        }
         Ok(Self {
             base_offset,
             batch_length,
@@ -333,16 +339,17 @@ impl RecordBatch {
             producer_epoch,
             base_sequence,
             records_count,
-            records: records.into(),
+            records,
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+
     use super::*;
     use crate::record::Record;
-    use std::io::Write;
 
     fn make_batch(base_offset: u64, records: &[Record]) -> RecordBatch {
         let records_count = records.len() as u32;
@@ -387,7 +394,10 @@ mod tests {
     fn get_size_equals_header_prefix_plus_batch_length() {
         let records = vec![Record::new(0, b"key", b"value")];
         let batch = make_batch(0, &records);
-        assert_eq!(batch.get_size(), BATCH_HEADER_PREFIX as u32 + batch.batch_length);
+        assert_eq!(
+            batch.get_size(),
+            BATCH_HEADER_PREFIX as u32 + batch.batch_length
+        );
     }
 
     #[test]
@@ -417,7 +427,8 @@ mod tests {
         let base_offset = u64::from_be_bytes(encoded[0..8].try_into().unwrap());
         let batch_length = u32::from_be_bytes(encoded[8..12].try_into().unwrap());
         // records_count is at offset 57 (HEADER_SIZE - 4) in the full header
-        let records_count = u32::from_be_bytes(encoded[HEADER_SIZE - 4..HEADER_SIZE].try_into().unwrap());
+        let records_count =
+            u32::from_be_bytes(encoded[HEADER_SIZE - 4..HEADER_SIZE].try_into().unwrap());
 
         assert_eq!(base_offset, batch.base_offset);
         assert_eq!(batch_length, batch.batch_length);
@@ -459,17 +470,17 @@ mod tests {
         assert_eq!(from_file.records_count, from_slice.records_count);
         assert_eq!(from_file.records, from_slice.records);
 
-        assert_eq!(Record::decode(&mut from_file.records.clone()).unwrap(), record);
+        assert_eq!(
+            Record::decode(&mut from_file.records.clone()).unwrap(),
+            record
+        );
 
         let _ = std::fs::remove_file(&path);
     }
 
     #[test]
     fn slice_from_offset_returns_clone_at_base() {
-        let records = vec![
-            Record::new(0, b"a", b"1"),
-            Record::new(1, b"b", b"2"),
-        ];
+        let records = vec![Record::new(0, b"a", b"1"), Record::new(1, b"b", b"2")];
         let batch = make_batch(10, &records);
         let sliced = batch.slice_from_offset(10).unwrap();
         assert_eq!(sliced.records_count, 2);
@@ -501,10 +512,7 @@ mod tests {
 
     #[test]
     fn find_record_returns_correct_ref() {
-        let records = vec![
-            Record::new(0, b"a", b"1"),
-            Record::new(1, b"b", b"2"),
-        ];
+        let records = vec![Record::new(0, b"a", b"1"), Record::new(1, b"b", b"2")];
         let batch = make_batch(0, &records);
         let loc = batch.find_record(1).unwrap();
         assert_eq!(loc.offset_delta, 1);

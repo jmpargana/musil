@@ -1,19 +1,17 @@
-use std::collections::VecDeque;
-use std::io;
-use std::path::Path;
-use std::sync::Arc;
+use std::{collections::VecDeque, io, path::Path, sync::Arc};
 
 use arc_swap::ArcSwap;
 use derive_builder::Builder;
+use proto::produce::{acks::Acks, response::partition_response::ProducePartitionResponse};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::partition::command::PartitionCommand;
-use crate::partition::config::PartitionConfig;
-use crate::partition::state::PartitionState;
-use crate::segment::config::{SegmentConfig, SegmentConfigBuilder};
-use crate::segment::log_segment::LogSegment;
-use proto::produce::acks::Acks;
-use proto::produce::response::partition_response::ProducePartitionResponse;
+use crate::{
+    partition::{command::PartitionCommand, config::PartitionConfig, state::PartitionState},
+    segment::{
+        config::{SegmentConfig, SegmentConfigBuilder},
+        log_segment::LogSegment,
+    },
+};
 
 struct PendingResponse {
     hw: u64,
@@ -291,12 +289,13 @@ impl PartitionActor {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::replica::ReplicaMetadata;
     use bytes::Bytes;
     use proto::record_batch::RecordBatch;
     use tempdir::TempDir;
     use tokio::sync::oneshot;
+
+    use super::*;
+    use crate::replica::ReplicaMetadata;
 
     fn make_dir() -> TempDir {
         TempDir::new("rafka-actor-test").unwrap()

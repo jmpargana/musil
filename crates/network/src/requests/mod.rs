@@ -1,15 +1,18 @@
 use bytes::BytesMut;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+};
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
-
-use crate::protocol::fetch::request::fetch_partition::FetchPartition;
-use crate::protocol::fetch::request::fetch_request::FetchRequest;
-use crate::protocol::fetch::request::fetch_topic::FetchTopic;
-use crate::protocol::fetch::response::fetch_response::FetchResponse;
 use crate::protocol::{
     Frame,
     body::FrameBody,
+    fetch::{
+        request::{
+            fetch_partition::FetchPartition, fetch_request::FetchRequest, fetch_topic::FetchTopic,
+        },
+        response::fetch_response::FetchResponse,
+    },
     header::ApiKey,
     metadata::{MetadataRequest, MetadataResponse},
 };

@@ -1,9 +1,8 @@
-use clap::Parser;
-use serde::Deserialize;
 use std::sync::Arc;
 
-use broker::network::server::SocketServer;
-use broker::{Broker, config::BrokerConfig};
+use broker::{Broker, config::BrokerConfig, network::server::SocketServer};
+use clap::Parser;
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 struct ControllerConfig {

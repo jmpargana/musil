@@ -3,15 +3,12 @@ use std::{cmp::max, sync::Arc};
 use proto::{
     error_codes::ErrorCode,
     fetch::{
-        request::fetch_partition::FetchPartition,
-        response::partition_response::PartitionResponse,
+        request::fetch_partition::FetchPartition, response::partition_response::PartitionResponse,
     },
     record_batch::RecordBatch,
 };
-use crate::{
-    replica::ReplicaMetadata,
-    segment::metadata::SegmentView,
-};
+
+use crate::{replica::ReplicaMetadata, segment::metadata::SegmentView};
 
 #[derive(Clone)]
 pub struct PartitionState {
@@ -93,6 +90,11 @@ impl PartitionState {
         log_end_offset: u64,
         high_watermark: u64,
     ) -> Self {
-        Self { segments, log_end_offset, high_watermark, ..self }
+        Self {
+            segments,
+            log_end_offset,
+            high_watermark,
+            ..self
+        }
     }
 }

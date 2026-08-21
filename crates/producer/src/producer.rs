@@ -43,14 +43,14 @@ impl Producer {
         stream
             .write_all(&metadata_request.encode())
             .await
-            .map_err(|e| ProducerError::IoErr(e))?;
+            .map_err(ProducerError::IoErr)?;
         let response_size = stream.read_u32().await.unwrap();
         let mut buf = BytesMut::zeroed(response_size as usize);
 
         stream
             .read_exact(&mut buf)
             .await
-            .map_err(|e| ProducerError::IoErr(e))?;
+            .map_err(ProducerError::IoErr)?;
 
         let metadata_response = Frame::decode_response(&buf.freeze(), response_size)
             .map_err(|_| ProducerError::ParseErr)?;
