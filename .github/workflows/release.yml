@@ -1,0 +1,136 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  build-binaries:
+    name: Build (${{ matrix.target }})
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build binaries
+        run: |
+          for bin in server consumer producer seeder; do
+            cargo build --release --target ${{ matrix.target }} --bin ${bin}
+          done
+
+      - name: Package
+        shell: bash
+        run: |
+          VERSION=${{ needs.release-please.outputs.version }}
+          TARGET=${{ matrix.target }}
+          for bin in server consumer producer seeder; do
+            ARCHIVE="rafka-${bin}-${VERSION}-${TARGET}.tar.gz"
+            tar -czf "${ARCHIVE}" -C target/${TARGET}/release ${bin}
+            echo "${ARCHIVE}" >> artifacts.txt
+          done
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          while read -r archive; do
+            gh release upload ${{ needs.release-please.outputs.tag_name }} "${archive}"
+          done < artifacts.txt
+
+  docker:
+    name: Docker (${{ matrix.binary }})
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    strategy:
+      matrix:
+        binary: [server, consumer, producer, seeder]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: BINARY=${{ matrix.binary }}
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/jmpargana/rafka-${{ matrix.binary }}:latest
+            ghcr.io/jmpargana/rafka-${{ matrix.binary }}:${{ needs.release-please.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  publish-crates:
+    name: Publish Crates
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish in topological order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          for crate in proto raft network storage raft-runtime; do
+            echo "Publishing ${crate}..."
+            cargo publish -p ${crate} --allow-dirty
+            sleep 30  # wait for crates.io index to update
+          done
