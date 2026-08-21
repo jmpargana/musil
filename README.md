@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/musil_logo.png" alt="Musil" width="200">
+</p>
+
 # musil
 
 [![CI](https://github.com/jmpargana/musil/actions/workflows/ci.yml/badge.svg)](https://github.com/jmpargana/musil/actions/workflows/ci.yml)
@@ -5,7 +9,9 @@
 [![crates.io](https://img.shields.io/crates/v/musil-proto.svg)](https://crates.io/crates/musil-proto)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE-MIT)
 
-A Kafka-compatible message broker implemented in Rust.
+A partially* Kafka-compatible broker, producer, consumer and seeder implemented in Rust.
+
+KRaft controller implementation in progress.
 
 ## Components
 
