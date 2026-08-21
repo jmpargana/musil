@@ -23,6 +23,9 @@ pub enum Action {
     ResetElectionTimer,
     ResetHeartbeatTimer,
 
+    // State
+    AdvanceHighWatermark(u64),
+
     // Client notifications (Runner routes by propose_id)
     CommitPropose(u64),
     RejectPropose(u64),

@@ -231,4 +231,12 @@ impl RaftLog for TestLog {
             .map(|e| e.offset)
             .unwrap_or(0)
     }
+
+    async fn append(&mut self, entry: LogEntry) {
+        self.entries.push(entry);
+    }
+
+    async fn truncate(&mut self, offset: u64) {
+        self.entries.retain(|e| e.offset < offset);
+    }
 }

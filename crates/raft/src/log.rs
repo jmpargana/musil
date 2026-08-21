@@ -21,6 +21,9 @@ pub trait RaftLog {
     fn last_epoch(&self) -> u32;
     fn entries(&self, start: u64, end: u64) -> Vec<LogEntry>;
     fn find_epoch_start(&self, epoch: u32) -> u64;
+
+    fn append(&mut self, entry: LogEntry) -> impl std::future::Future<Output = ()> + Send;
+    fn truncate(&mut self, offset: u64) -> impl std::future::Future<Output = ()> + Send;
 }
 
 #[cfg(test)]
@@ -38,14 +41,6 @@ impl VecLog {
 
     pub fn with_entries(entries: Vec<LogEntry>) -> Self {
         Self { entries }
-    }
-
-    pub fn append(&mut self, entry: LogEntry) {
-        self.entries.push(entry);
-    }
-
-    pub fn truncate(&mut self, offset: u64) {
-        self.entries.retain(|e| e.offset < offset);
     }
 }
 
@@ -80,5 +75,13 @@ impl RaftLog for VecLog {
             .find(|e| e.epoch == epoch)
             .map(|e| e.offset)
             .unwrap_or(0)
+    }
+
+    async fn append(&mut self, entry: LogEntry) {
+        self.entries.push(entry);
+    }
+
+    async fn truncate(&mut self, offset: u64) {
+        self.entries.retain(|e| e.offset < offset);
     }
 }

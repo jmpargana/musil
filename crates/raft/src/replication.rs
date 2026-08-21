@@ -107,6 +107,7 @@ impl<L: RaftLog> Node<L> {
         if resp.high_watermark > self.high_watermark {
             let new_hwm = resp.high_watermark.min(self.log.log_end_offset());
             self.high_watermark = new_hwm;
+            actions.push(Action::AdvanceHighWatermark(new_hwm));
             actions.extend(self.check_committed_proposes());
         }
 
@@ -205,7 +206,9 @@ impl<L: RaftLog> Node<L> {
         }
 
         self.high_watermark = new_hwm;
-        self.check_committed_proposes()
+        let mut actions = vec![Action::AdvanceHighWatermark(new_hwm)];
+        actions.extend(self.check_committed_proposes());
+        actions
     }
 
     fn check_committed_proposes(&mut self) -> Vec<Action> {

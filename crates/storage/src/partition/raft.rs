@@ -1,28 +1,37 @@
 use std::sync::Arc;
 
-use arc_swap::ArcSwap;
+use bytes::Bytes;
 use proto::record::Record;
+use proto::record_batch::RecordBatch;
 use raft::{LogEntry, RaftLog};
 
-use crate::partition::state::PartitionState;
+use crate::partition::handle::PartitionHandle;
 
 pub struct RaftPartition {
-    state: Arc<ArcSwap<PartitionState>>,
+    handle: Arc<PartitionHandle>,
 }
 
 impl RaftPartition {
-    pub fn new(state: Arc<ArcSwap<PartitionState>>) -> Self {
-        Self { state }
+    pub fn new(handle: Arc<PartitionHandle>) -> Self {
+        Self { handle }
+    }
+}
+
+impl Clone for RaftPartition {
+    fn clone(&self) -> Self {
+        Self {
+            handle: self.handle.clone(),
+        }
     }
 }
 
 impl RaftLog for RaftPartition {
     fn log_end_offset(&self) -> u64 {
-        self.state.load_full().log_end_offset
+        self.handle.state.load_full().log_end_offset
     }
 
     fn epoch_at(&self, offset: u64) -> Option<u32> {
-        let state = self.state.load_full();
+        let state = self.handle.state.load_full();
         let idx = state.segments.partition_point(|seg| seg.base_offset <= offset);
         if idx == 0 {
             return None;
@@ -48,7 +57,7 @@ impl RaftLog for RaftPartition {
     }
 
     fn last_epoch(&self) -> u32 {
-        let state = self.state.load_full();
+        let state = self.handle.state.load_full();
         if state.segments.is_empty() {
             return 0;
         }
@@ -72,7 +81,7 @@ impl RaftLog for RaftPartition {
     }
 
     fn entries(&self, start: u64, end: u64) -> Vec<LogEntry> {
-        let state = self.state.load_full();
+        let state = self.handle.state.load_full();
         if state.segments.is_empty() {
             return vec![];
         }
@@ -113,7 +122,7 @@ impl RaftLog for RaftPartition {
     }
 
     fn find_epoch_start(&self, epoch: u32) -> u64 {
-        let state = self.state.load_full();
+        let state = self.handle.state.load_full();
         if state.segments.is_empty() {
             return 0;
         }
@@ -129,5 +138,23 @@ impl RaftLog for RaftPartition {
         }
 
         state.log_end_offset
+    }
+
+    async fn append(&mut self, entry: LogEntry) {
+        use proto::produce::acks::Acks;
+
+        let record = Record::new(0, b"", &entry.data);
+        let encoded = record.encode();
+        let records = Bytes::from(encoded);
+        let batch_length = 49 + records.len() as u32;
+        let mut batch = RecordBatch::from_compact(entry.offset, batch_length, 1, records);
+        batch.partition_leader_epoch = entry.epoch as i32;
+        self.handle.append(batch, Acks::None).await;
+    }
+
+    async fn truncate(&mut self, _offset: u64) {
+        // TODO: implement truncation via PartitionHandle
+        // For now, truncation is a no-op placeholder.
+        // Real implementation needs a new PartitionCommand::Truncate variant.
     }
 }
