@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
-use proto::record::Record;
-use proto::record_batch::RecordBatch;
+use proto::{record::Record, record_batch::RecordBatch};
 use raft::{LogEntry, RaftLog};
 
 use crate::partition::handle::PartitionHandle;
@@ -32,7 +31,9 @@ impl RaftLog for RaftPartition {
 
     fn epoch_at(&self, offset: u64) -> Option<u32> {
         let state = self.handle.state.load_full();
-        let idx = state.segments.partition_point(|seg| seg.base_offset <= offset);
+        let idx = state
+            .segments
+            .partition_point(|seg| seg.base_offset <= offset);
         if idx == 0 {
             return None;
         }
@@ -86,7 +87,9 @@ impl RaftLog for RaftPartition {
             return vec![];
         }
 
-        let idx = state.segments.partition_point(|seg| seg.base_offset <= start);
+        let idx = state
+            .segments
+            .partition_point(|seg| seg.base_offset <= start);
         let start_idx = if idx == 0 { 0 } else { idx - 1 };
 
         let mut result = Vec::new();

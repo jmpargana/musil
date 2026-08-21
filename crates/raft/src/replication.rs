@@ -1,8 +1,10 @@
-use crate::action::Action;
-use crate::log::{LogEntry, RaftLog};
-use crate::node::Node;
-use crate::rpc::{Diverging, FetchRequest, FetchResponse};
-use crate::state::Role;
+use crate::{
+    action::Action,
+    log::{LogEntry, RaftLog},
+    node::Node,
+    rpc::{Diverging, FetchRequest, FetchResponse},
+    state::Role,
+};
 
 impl<L: RaftLog> Node<L> {
     pub(crate) fn handle_fetch_request(&mut self, from: u16, req: FetchRequest) -> Vec<Action> {
@@ -60,7 +62,9 @@ impl<L: RaftLog> Node<L> {
             )];
         }
 
-        let entries = self.log.entries(req.fetch_offset, self.log.log_end_offset());
+        let entries = self
+            .log
+            .entries(req.fetch_offset, self.log.log_end_offset());
 
         if self.voters.contains(&from) {
             self.voter_fetch_offsets.insert(from, req.fetch_offset);
@@ -180,11 +184,7 @@ impl<L: RaftLog> Node<L> {
     fn try_advance_high_watermark(&mut self) -> Vec<Action> {
         let my_offset = self.log.log_end_offset();
 
-        let mut offsets: Vec<u64> = self
-            .voter_fetch_offsets
-            .values()
-            .copied()
-            .collect();
+        let mut offsets: Vec<u64> = self.voter_fetch_offsets.values().copied().collect();
         offsets.push(my_offset);
         offsets.sort_unstable_by(|a, b| b.cmp(a));
 
@@ -198,11 +198,10 @@ impl<L: RaftLog> Node<L> {
             return vec![];
         }
 
-        // Commitment rule: only advance HWM if the entry at new_hwm-1 is from current epoch
-        if let Some(epoch) = self.log.epoch_at(new_hwm - 1) {
-            if epoch != self.current_epoch {
-                return vec![];
-            }
+        if let Some(epoch) = self.log.epoch_at(new_hwm - 1)
+            && epoch != self.current_epoch
+        {
+            return vec![];
         }
 
         self.high_watermark = new_hwm;

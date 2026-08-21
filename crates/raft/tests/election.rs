@@ -209,7 +209,10 @@ impl RaftLog for TestLog {
     }
 
     fn epoch_at(&self, offset: u64) -> Option<u32> {
-        self.entries.iter().find(|e| e.offset == offset).map(|e| e.epoch)
+        self.entries
+            .iter()
+            .find(|e| e.offset == offset)
+            .map(|e| e.epoch)
     }
 
     fn last_epoch(&self) -> u32 {

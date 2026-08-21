@@ -1,10 +1,11 @@
 use std::{collections::HashMap, time::Duration};
 
+use proto::record::Record;
+
 use crate::protocol::produce::{
     acks::Acks,
     request::{produce_partition::ProducePartition, produce_topic::ProduceTopic},
 };
-use proto::record::Record;
 
 #[derive(Debug)]
 pub struct ProduceRequest {

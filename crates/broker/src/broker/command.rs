@@ -1,6 +1,5 @@
-use tokio::sync::oneshot;
-
 use network::protocol::metadata::{CreateTopicRequest, CreateTopicResponse};
+use tokio::sync::oneshot;
 
 pub enum MetadataCommand {
     CreateTopic {

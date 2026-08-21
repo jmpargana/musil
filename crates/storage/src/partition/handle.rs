@@ -1,6 +1,13 @@
 use std::sync::{Arc, Mutex};
 
 use arc_swap::ArcSwap;
+use proto::{
+    fetch::{
+        request::fetch_partition::FetchPartition, response::partition_response::PartitionResponse,
+    },
+    produce::{acks::Acks, response::partition_response::ProducePartitionResponse},
+    record_batch::RecordBatch,
+};
 use tokio::{
     sync::{
         mpsc::{self, channel, error::SendError},
@@ -14,14 +21,6 @@ use crate::partition::{
     command::PartitionCommand,
     config::PartitionConfig,
     state::PartitionState,
-};
-use proto::{
-    fetch::{
-        request::fetch_partition::FetchPartition,
-        response::partition_response::PartitionResponse,
-    },
-    produce::{acks::Acks, response::partition_response::ProducePartitionResponse},
-    record_batch::RecordBatch,
 };
 
 pub struct PartitionHandle {
@@ -58,13 +57,21 @@ impl PartitionHandle {
 
     pub async fn append(&self, record: RecordBatch, acks: Acks) -> ProducePartitionResponse {
         let (tx, rx) = oneshot::channel::<ProducePartitionResponse>();
-        self.send(PartitionCommand::Append { record, acks, done: tx }).await.unwrap();
+        self.send(PartitionCommand::Append {
+            record,
+            acks,
+            done: tx,
+        })
+        .await
+        .unwrap();
         rx.await.unwrap()
     }
 
     pub async fn truncate(&self, offset: u64) {
         let (tx, rx) = oneshot::channel();
-        self.send(PartitionCommand::Truncate { offset, done: tx }).await.unwrap();
+        self.send(PartitionCommand::Truncate { offset, done: tx })
+            .await
+            .unwrap();
         rx.await.unwrap();
     }
 
@@ -85,7 +92,8 @@ impl PartitionHandle {
 
     pub async fn shutdown(&self) {
         self.send(PartitionCommand::Shutdown).await.unwrap();
-        if let Some(join) = self.join.lock().unwrap().take() {
+        let join = self.join.lock().unwrap().take();
+        if let Some(join) = join {
             join.await.unwrap();
         }
     }
@@ -94,13 +102,12 @@ impl PartitionHandle {
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
-
-    use crate::partition::config::PartitionConfigBuilder;
-    use proto::fetch::request::fetch_partition::FetchPartition;
-    use proto::record::Record;
-    use proto::record_batch::RecordBatch;
+    use proto::{
+        fetch::request::fetch_partition::FetchPartition, record::Record, record_batch::RecordBatch,
+    };
 
     use super::*;
+    use crate::partition::config::PartitionConfigBuilder;
 
     fn make_handle(dir: &tempdir::TempDir, segment_bytes: usize) -> Arc<PartitionHandle> {
         let cfg = PartitionConfigBuilder::default()
@@ -121,11 +128,21 @@ mod tests {
         }
         let records_data = Bytes::from(encoded);
         let batch_length = 49 + records_data.len() as u32;
-        RecordBatch::from_compact(base_offset, batch_length, records.len() as u32, records_data)
+        RecordBatch::from_compact(
+            base_offset,
+            batch_length,
+            records.len() as u32,
+            records_data,
+        )
     }
 
     fn fetch_req(offset: u64, max_bytes: u32) -> FetchPartition {
-        FetchPartition { partition: 0, fetch_offset: offset, partition_max_bytes: max_bytes, high_watermark: 0 }
+        FetchPartition {
+            partition: 0,
+            fetch_offset: offset,
+            partition_max_bytes: max_bytes,
+            high_watermark: 0,
+        }
     }
 
     #[tokio::test]
@@ -144,7 +161,10 @@ mod tests {
         assert_eq!(state.high_watermark, 2);
 
         let fetch_resp = handle.fetch(fetch_req(0, 1 << 20), -1).await;
-        assert!(!fetch_resp.records.is_empty(), "fetch must return at least one batch");
+        assert!(
+            !fetch_resp.records.is_empty(),
+            "fetch must return at least one batch"
+        );
         let total_records: u32 = fetch_resp.records.iter().map(|b| b.records_count).sum();
         assert_eq!(total_records, 2, "fetched record count must match appended");
 

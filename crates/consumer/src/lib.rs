@@ -1,8 +1,4 @@
-use std::{
-    fmt,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{fmt, sync::Arc, time::Duration};
 
 use dashmap::DashMap;
 use derive_builder::Builder;
@@ -136,16 +132,16 @@ impl ConsumerActor {
 
         let partitions = DashMap::new();
 
-        if cfg.partition.is_none() {
+        if let Some(partition) = cfg.partition {
+            partitions.insert(
+                partition,
+                ConsumerPartitionState::from_offset(cfg.base_offset),
+            );
+        } else {
             let _partitions = do_request_metadata(&cfg.topic, &mut stream).await?;
             _partitions.iter().for_each(|p| {
                 partitions.insert(p.partition_index as u16, Default::default());
             });
-        } else {
-            partitions.insert(
-                cfg.partition.expect("impossible"),
-                ConsumerPartitionState::from_offset(cfg.base_offset),
-            );
         }
         Ok(Self {
             partitions,
@@ -160,7 +156,7 @@ impl ConsumerActor {
         // not doing anything for now
         // FIXME: when something will be done, the request shouldn't override single partition if in config.
         // maybe the best approach is to check self.cfg and only update leader_id of single observed replica.
-        let _ = do_request_metadata(&self.cfg.topic, &mut stream);
+        let _ = do_request_metadata(&self.cfg.topic, &mut stream).await;
     }
 
     // Loop used to update 2 things:
@@ -243,13 +239,13 @@ async fn do_request_metadata(
 ) -> Result<Vec<PartitionMetadata>, ConsumerError> {
     request_metadata(stream)
         .await
-        .map_err(|e| ConsumerError::ReqErr(e))
+        .map_err(ConsumerError::ReqErr)
         .and_then(|metadata| {
             metadata
                 .topics
                 .into_iter()
                 .find(|t| t.name == topic)
                 .ok_or(ConsumerError::TopicNotFound)
-                .and_then(|t| Ok(t.partitions))
+                .map(|t| t.partitions)
         })
 }

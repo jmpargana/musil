@@ -1,5 +1,4 @@
-use std::fs;
-use std::path::Path;
+use std::{fs, path::Path};
 
 use serde::{Deserialize, Serialize};
 
@@ -38,10 +37,10 @@ impl QuorumState {
         let f = fs::File::open(&tmp).expect("QuorumState fsync open failed");
         f.sync_all().expect("QuorumState fsync failed");
         fs::rename(&tmp, path).expect("QuorumState rename failed");
-        if let Some(dir) = path.parent() {
-            if let Ok(d) = fs::File::open(dir) {
-                let _ = d.sync_all();
-            }
+        if let Some(dir) = path.parent()
+            && let Ok(d) = fs::File::open(dir)
+        {
+            let _ = d.sync_all();
         }
     }
 }

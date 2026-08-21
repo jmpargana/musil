@@ -37,7 +37,7 @@ impl ProducePartitionResponse {
             base_offset,
             log_append_time_ms: 0,
             log_start_offset: 0,
-            error_message: "".to_string(),
+            error_message: String::new(),
             current_leader: Some(CurrentLeader {
                 leader_id: broker_id,
                 leader_epoch: 0,
@@ -52,7 +52,7 @@ impl ProducePartitionResponse {
             base_offset: 0,
             log_append_time_ms: 0,
             log_start_offset: 0,
-            error_message: "".to_string(),
+            error_message: String::new(),
             current_leader: None,
         }
     }
@@ -63,6 +63,8 @@ impl ProducePartitionResponse {
         } else {
             1
         };
-        4 + 2 + 8 + 8 + 8 + 2 + self.error_message.len() as u32 + current_leader_size
+        #[allow(clippy::cast_possible_truncation)]
+        let msg_len = self.error_message.len() as u32;
+        4 + 2 + 8 + 8 + 8 + 2 + msg_len + current_leader_size
     }
 }

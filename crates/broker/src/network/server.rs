@@ -4,9 +4,7 @@ use bytes::BytesMut;
 use tokio::net::TcpListener;
 use tracing::{debug, info};
 
-use crate::broker::Broker;
-
-use crate::network::connection::Connection;
+use crate::{broker::Broker, network::connection::Connection};
 
 pub struct SocketServer {
     broker: Arc<Broker>,
@@ -53,12 +51,6 @@ mod tests {
     use std::{collections::HashMap, sync::Arc, time::Duration};
 
     use bytes::Bytes;
-    use tokio::{
-        io::{AsyncReadExt, AsyncWriteExt},
-        net::TcpListener,
-    };
-
-    use crate::broker::Broker;
     use network::protocol::{
         Frame,
         body::FrameBody,
@@ -76,8 +68,13 @@ mod tests {
         partition::{config::PartitionConfigBuilder, handle::PartitionHandle},
         topic::TopicPartition,
     };
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
 
     use super::SocketServer;
+    use crate::broker::Broker;
 
     fn make_broker(topic: &str, partition_id: u16) -> Arc<Broker> {
         let dir = tempdir::TempDir::new("srv-test").unwrap();

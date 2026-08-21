@@ -1,8 +1,7 @@
 use derive_builder::Builder;
-use serde::Deserialize;
-
-use storage::partition::config::PartitionConfig;
 use network::protocol::metadata::BrokerMetadata;
+use serde::Deserialize;
+use storage::partition::config::PartitionConfig;
 
 #[derive(Builder, Clone, Debug, Deserialize)]
 pub struct BrokerConfig {
@@ -12,12 +11,12 @@ pub struct BrokerConfig {
     pub topics: Vec<TopicConfig>,
 }
 
-impl Into<BrokerMetadata> for &BrokerConfig {
-    fn into(self) -> BrokerMetadata {
-        BrokerMetadata {
-            node_id: self.node_id,
-            host: self.host.to_string(),
-            port: self.port,
+impl From<&BrokerConfig> for BrokerMetadata {
+    fn from(config: &BrokerConfig) -> Self {
+        Self {
+            node_id: config.node_id,
+            host: config.host.to_string(),
+            port: config.port,
         }
     }
 }

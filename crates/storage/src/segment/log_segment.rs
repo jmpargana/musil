@@ -6,10 +6,12 @@ use std::{
 };
 
 use memmap::MmapOptions;
+use proto::{
+    batch_iter::BatchIter,
+    record_batch::{BATCH_HEADER_PREFIX, RecordBatch},
+};
 
 use crate::segment::{config::SegmentConfig, metadata::SegmentView};
-use proto::batch_iter::BatchIter;
-use proto::record_batch::{BATCH_HEADER_PREFIX, RecordBatch};
 
 const INDEX_ENTRY_SIZE: usize = 16;
 
@@ -126,10 +128,15 @@ impl LogSegment {
 
     pub fn records_count(&self) -> io::Result<u64> {
         let file = Arc::new(self.log_file.try_clone()?);
-        let iter = BatchIter { file, pos: 0, end: self.size as u64 };
+        let iter = BatchIter {
+            file,
+            pos: 0,
+            end: self.size as u64,
+        };
         let mut total = 0u64;
         for batch in iter {
-            let batch = batch.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{e:?}")))?;
+            let batch =
+                batch.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{e:?}")))?;
             total += batch.records_count as u64;
         }
         Ok(total)
@@ -176,11 +183,10 @@ impl LogSegment {
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
-
-    use crate::segment::config::SegmentConfigBuilder;
     use proto::record_batch::RecordBatch;
 
     use super::*;
+    use crate::segment::config::SegmentConfigBuilder;
 
     fn make_seg(dir: &tempdir::TempDir, base_offset: u64, segment_bytes: usize) -> LogSegment {
         let cfg = SegmentConfigBuilder::default()

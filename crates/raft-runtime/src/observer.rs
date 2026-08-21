@@ -1,8 +1,7 @@
 use std::time::Duration;
 
-use tokio::time;
-
 use raft::{FetchRequest, FetchResponse, LogEntry, RaftLog};
+use tokio::time;
 
 use crate::transport::{RaftMessage, Transport};
 

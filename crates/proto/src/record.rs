@@ -8,20 +8,18 @@ use bytes::{Buf, BufMut, BytesMut};
 
 use crate::record_header::RecordHeader;
 
-/**
- * Source: https://kafka.apache.org/43/implementation/message-format/
-length: varint
-attributes: int8
-    bit 0~7: unused
-timestampDelta: varlong
-offsetDelta: varint
-keyLength: varint
-key: byte[]
-valueLength: varint
-value: byte[]
-headersCount: varint
-Headers => [Header]
- */
+/// Source: <https://kafka.apache.org/43/implementation/message-format/>
+///
+/// - length: varint
+/// - attributes: int8 (bit 0~7: unused)
+/// - timestampDelta: varlong
+/// - offsetDelta: varint
+/// - keyLength: varint
+/// - key: byte[]
+/// - valueLength: varint
+/// - value: byte[]
+/// - headersCount: varint
+/// - Headers => [Header]
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Record {
     pub length: u32,
@@ -39,7 +37,7 @@ impl Record {
     pub fn new(offset_delta: u64, key: &[u8], value: &[u8]) -> Self {
         let mut record = Self {
             offset_delta,
-            timestamp_delta: u64::from(UNIX_EPOCH.elapsed().unwrap().as_millis() as u64),
+            timestamp_delta: UNIX_EPOCH.elapsed().unwrap().as_millis() as u64,
             key: key.to_vec(),
             value: value.to_vec(),
             length: 0,
@@ -60,7 +58,7 @@ impl Record {
             + 4
             + self.value.len() as u32
             + 4
-            + self.headers.iter().map(|h| h.get_size()).sum::<u32>()
+            + self.headers.iter().map(RecordHeader::get_size).sum::<u32>()
     }
 
     // TODO: actually nothing is really throwing here (for now).
@@ -94,7 +92,7 @@ impl Record {
 
     /// Decode a record from a byte slice, returning the record and number of bytes consumed.
     pub fn decode_raw(buf: &[u8]) -> io::Result<(Self, usize)> {
-        let mut cursor = &buf[..];
+        let mut cursor = buf;
         let start_len = cursor.len();
         let record = Self::decode(&mut cursor)?;
         let consumed = start_len - cursor.len();
@@ -119,7 +117,7 @@ impl Record {
         buf.put_slice(&self.value);
 
         buf.put_u32(self.headers.len() as u32);
-        for header in self.headers.iter() {
+        for header in &self.headers {
             header.encode(buf);
         }
     }

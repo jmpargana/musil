@@ -1,9 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::action::Action;
-use crate::event::Event;
-use crate::log::RaftLog;
-use crate::state::{QuorumState, Role};
+use crate::{
+    action::Action,
+    event::Event,
+    log::RaftLog,
+    state::{QuorumState, Role},
+};
 
 pub struct Node<L: RaftLog> {
     pub(crate) id: u16,

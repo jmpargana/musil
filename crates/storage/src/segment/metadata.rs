@@ -1,11 +1,11 @@
 use std::{fs::File, os::unix::fs::FileExt, sync::Arc};
 
 use memmap::{Mmap, MmapOptions};
-
 use proto::{
-    batch_iter::BatchIter, error::ProtoError,
+    batch_iter::BatchIter,
+    error::ProtoError,
     fetch::request::fetch_partition::FetchPartition,
-    record_batch::{RecordBatch, BATCH_HEADER_PREFIX, HEADER_SIZE},
+    record_batch::{BATCH_HEADER_PREFIX, HEADER_SIZE, RecordBatch},
 };
 
 const INDEX_ENTRY_SIZE: usize = 16;
@@ -195,12 +195,11 @@ fn read_u64_at(file: &File, pos: u64) -> std::io::Result<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::segment::config::SegmentConfigBuilder;
-    use crate::segment::log_segment::LogSegment;
     use bytes::Bytes;
-    use proto::record::Record;
-    use proto::record_batch::RecordBatch;
+    use proto::{record::Record, record_batch::RecordBatch};
+
+    use super::*;
+    use crate::segment::{config::SegmentConfigBuilder, log_segment::LogSegment};
 
     fn make_seg(dir: &tempdir::TempDir, base_offset: u64) -> LogSegment {
         let cfg = SegmentConfigBuilder::default()

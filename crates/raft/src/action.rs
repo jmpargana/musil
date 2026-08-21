@@ -1,7 +1,9 @@
-use crate::log::LogEntry;
-use crate::rpc::{
-    BeginQuorumEpochRequest, EndQuorumEpochRequest, FetchRequest, FetchResponse, VoteRequest,
-    VoteResponse,
+use crate::{
+    log::LogEntry,
+    rpc::{
+        BeginQuorumEpochRequest, EndQuorumEpochRequest, FetchRequest, FetchResponse, VoteRequest,
+        VoteResponse,
+    },
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]

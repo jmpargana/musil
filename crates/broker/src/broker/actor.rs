@@ -1,8 +1,6 @@
 use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use arc_swap::ArcSwap;
-use tokio::sync::mpsc;
-
 use network::protocol::{
     error_codes::ErrorCode,
     metadata::{CreateTopicResponse, TopicResponse},
@@ -10,6 +8,7 @@ use network::protocol::{
 };
 use proto::{record::Record, record_batch::RecordBatch};
 use storage::partition::{config::PartitionConfigBuilder, handle::PartitionHandle};
+use tokio::sync::mpsc;
 
 use crate::broker::{
     command::MetadataCommand,

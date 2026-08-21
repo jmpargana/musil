@@ -1,4 +1,4 @@
-use std::fmt::{Display, write};
+use std::fmt::Display;
 
 use crate::protocol::produce::response::partition_response::ProducePartitionResponse;
 
@@ -22,7 +22,7 @@ impl ProduceTopicResponse {
 
 impl Display for ProduceTopicResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "topic: {}, partitions: [", self.topic,)?;
+        write!(f, "topic: {}, partitions: [", self.topic)?;
 
         for (i, partition) in self.partition_responses.iter().enumerate() {
             if i > 0 {

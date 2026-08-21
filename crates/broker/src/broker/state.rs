@@ -14,7 +14,9 @@ pub struct MetadataImage {
 
 impl MetadataImage {
     pub fn empty() -> Self {
-        MetadataImage { partitions: HashMap::new() }
+        MetadataImage {
+            partitions: HashMap::new(),
+        }
     }
 
     pub fn create_topic(

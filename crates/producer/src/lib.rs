@@ -9,8 +9,8 @@ pub mod producer;
 #[cfg(test)]
 mod tests;
 
+pub use command::ProducerCommand;
 pub use config::{ProducerConfig, ProducerConfigBuilder};
 pub use error::ProducerError;
 pub use payload::PublishPayload;
 pub use producer::Producer;
-pub use command::ProducerCommand;
