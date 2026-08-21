@@ -152,9 +152,7 @@ impl RaftLog for RaftPartition {
         self.handle.append(batch, Acks::None).await;
     }
 
-    async fn truncate(&mut self, _offset: u64) {
-        // TODO: implement truncation via PartitionHandle
-        // For now, truncation is a no-op placeholder.
-        // Real implementation needs a new PartitionCommand::Truncate variant.
+    async fn truncate(&mut self, offset: u64) {
+        self.handle.truncate(offset).await;
     }
 }

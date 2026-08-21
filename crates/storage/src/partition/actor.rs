@@ -10,10 +10,10 @@ use tokio::sync::{mpsc, oneshot};
 use crate::partition::command::PartitionCommand;
 use crate::partition::config::PartitionConfig;
 use crate::partition::state::PartitionState;
-use proto::produce::acks::Acks;
-use proto::produce::response::partition_response::ProducePartitionResponse;
 use crate::segment::config::{SegmentConfig, SegmentConfigBuilder};
 use crate::segment::log_segment::LogSegment;
+use proto::produce::acks::Acks;
+use proto::produce::response::partition_response::ProducePartitionResponse;
 
 struct PendingResponse {
     hw: u64,
@@ -70,7 +70,11 @@ impl PartitionActor {
         let (active, segments, leo) = Self::initialize(&config)?;
 
         let state = snapshot.load_full();
-        let hw = if state.replicas.is_empty() { leo } else { state.high_watermark };
+        let hw = if state.replicas.is_empty() {
+            leo
+        } else {
+            state.high_watermark
+        };
         let next = Arc::new((*state).clone().consume(segments, leo, hw));
         snapshot.store(next);
 
@@ -86,7 +90,13 @@ impl PartitionActor {
         })
     }
 
-    fn initialize(config: &PartitionActorConfig) -> io::Result<(LogSegment, Arc<Vec<Arc<crate::segment::metadata::SegmentView>>>, u64)> {
+    fn initialize(
+        config: &PartitionActorConfig,
+    ) -> io::Result<(
+        LogSegment,
+        Arc<Vec<Arc<crate::segment::metadata::SegmentView>>>,
+        u64,
+    )> {
         std::fs::create_dir_all(&config.base_dir)?;
 
         let mut log_offsets: Vec<u64> = std::fs::read_dir(&config.base_dir)?
@@ -99,18 +109,30 @@ impl PartitionActor {
         log_offsets.sort_unstable();
 
         let last_base = log_offsets.last().copied().unwrap_or(0);
-        let mut active = LogSegment::open(Self::build_segment_config(&config.base_dir, last_base, config.segment_bytes))?;
+        let mut active = LogSegment::open(Self::build_segment_config(
+            &config.base_dir,
+            last_base,
+            config.segment_bytes,
+        ))?;
         let leo = last_base + active.records_count()?;
 
         let mut segments: Vec<Arc<crate::segment::metadata::SegmentView>> = Vec::new();
         for &base_offset in &log_offsets[..log_offsets.len().saturating_sub(1)] {
-            let mut seg = LogSegment::open(Self::build_segment_config(&config.base_dir, base_offset, config.segment_bytes))?;
+            let mut seg = LogSegment::open(Self::build_segment_config(
+                &config.base_dir,
+                base_offset,
+                config.segment_bytes,
+            ))?;
             segments.push(seg.publish());
         }
         segments.push(active.publish());
 
         if active.size >= config.segment_bytes {
-            let mut new_active = LogSegment::open(Self::build_segment_config(&config.base_dir, leo, config.segment_bytes))?;
+            let mut new_active = LogSegment::open(Self::build_segment_config(
+                &config.base_dir,
+                leo,
+                config.segment_bytes,
+            ))?;
             segments.push(new_active.publish());
             active = new_active;
         }
@@ -118,7 +140,11 @@ impl PartitionActor {
         Ok((active, Arc::new(segments), leo))
     }
 
-    fn build_segment_config(base_dir: &str, base_offset: u64, segment_bytes: usize) -> SegmentConfig {
+    fn build_segment_config(
+        base_dir: &str,
+        base_offset: u64,
+        segment_bytes: usize,
+    ) -> SegmentConfig {
         SegmentConfigBuilder::default()
             .base_dir(base_dir.to_string())
             .base_offset(base_offset)
@@ -136,10 +162,47 @@ impl PartitionActor {
         self.snapshot.clone()
     }
 
+    // Only used for KRaft log. Instead of being append-only, those logs need truncation when diverging
+    // happens.
+    fn handle_truncate(&mut self, offset: u64) {
+        let state = self.snapshot.load_full();
+        if offset >= state.log_end_offset {
+            return;
+        }
+
+        let mut kept_segments: Vec<Arc<crate::segment::metadata::SegmentView>> = Vec::new();
+        for seg in state.segments.iter() {
+            if seg.base_offset < offset {
+                kept_segments.push(seg.clone());
+            } else {
+                let log_path = format!("{}/{:020}.log", self.base_dir, seg.base_offset);
+                let idx_path = format!("{}/{:020}.index", self.base_dir, seg.base_offset);
+                let _ = std::fs::remove_file(&log_path);
+                let _ = std::fs::remove_file(&idx_path);
+            }
+        }
+
+        let mut active = LogSegment::open(self.segment_config(offset)).unwrap();
+        kept_segments.push(active.publish());
+        self.active = active;
+
+        let next = Arc::new(PartitionState {
+            segments: Arc::new(kept_segments),
+            log_end_offset: offset,
+            high_watermark: state.high_watermark.min(offset),
+            replicas: state.replicas.clone(),
+        });
+        self.snapshot.store(next);
+    }
+
     pub async fn run(&mut self) {
         while let Some(c) = self.rx.recv().await {
             match c {
-                PartitionCommand::Append { mut record, acks, done } => {
+                PartitionCommand::Append {
+                    mut record,
+                    acks,
+                    done,
+                } => {
                     let mut done = Some(done);
 
                     let state = self.snapshot.load_full();
@@ -196,6 +259,10 @@ impl PartitionActor {
                         }
                     }
                 }
+                PartitionCommand::Truncate { offset, done } => {
+                    self.handle_truncate(offset);
+                    let _ = done.send(());
+                }
                 PartitionCommand::Shutdown => {
                     break;
                 }
@@ -226,8 +293,8 @@ impl PartitionActor {
 mod tests {
     use super::*;
     use crate::replica::ReplicaMetadata;
-    use proto::record_batch::RecordBatch;
     use bytes::Bytes;
+    use proto::record_batch::RecordBatch;
     use tempdir::TempDir;
     use tokio::sync::oneshot;
 
@@ -270,9 +337,13 @@ mod tests {
         acks: Acks,
     ) -> ProducePartitionResponse {
         let (done_tx, done_rx) = oneshot::channel();
-        tx.send(PartitionCommand::Append { record: batch, acks, done: done_tx })
-            .await
-            .unwrap();
+        tx.send(PartitionCommand::Append {
+            record: batch,
+            acks,
+            done: done_tx,
+        })
+        .await
+        .unwrap();
         done_rx.await.unwrap()
     }
 
@@ -283,7 +354,10 @@ mod tests {
         let batch = make_batch(0, 5, b"aaaaa");
         append(&tx, batch, Acks::Leader).await;
         let snap = state.load_full();
-        assert_eq!(snap.high_watermark, 5, "hw must equal records_count (5), not 1");
+        assert_eq!(
+            snap.high_watermark, 5,
+            "hw must equal records_count (5), not 1"
+        );
         assert_eq!(snap.log_end_offset, 5);
         tx.send(PartitionCommand::Shutdown).await.unwrap();
         handle.await.unwrap();
@@ -349,15 +423,25 @@ mod tests {
         let (tx, state, handle) = spawn_actor(&dir, vec![replica], 1 << 20);
         let batch = make_batch(0, 1, b"z");
         let (done_tx, _done_rx) = oneshot::channel();
-        tx.send(PartitionCommand::Append { record: batch, acks: Acks::All, done: done_tx })
-            .await
-            .unwrap();
+        tx.send(PartitionCommand::Append {
+            record: batch,
+            acks: Acks::All,
+            done: done_tx,
+        })
+        .await
+        .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         let snap = state.load_full();
-        assert_eq!(snap.high_watermark, 0, "hw must not advance until replica acks");
-        tx.send(PartitionCommand::UpdateReplicaLeo { replica_id: 42, leo: 1 })
-            .await
-            .unwrap();
+        assert_eq!(
+            snap.high_watermark, 0,
+            "hw must not advance until replica acks"
+        );
+        tx.send(PartitionCommand::UpdateReplicaLeo {
+            replica_id: 42,
+            leo: 1,
+        })
+        .await
+        .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         let snap = state.load_full();
         assert_eq!(snap.high_watermark, 1);
@@ -386,9 +470,12 @@ mod tests {
         })
         .await
         .unwrap();
-        tx.send(PartitionCommand::UpdateReplicaLeo { replica_id: 99, leo: 2 })
-            .await
-            .unwrap();
+        tx.send(PartitionCommand::UpdateReplicaLeo {
+            replica_id: 99,
+            leo: 2,
+        })
+        .await
+        .unwrap();
         let r1 = tokio::time::timeout(std::time::Duration::from_millis(200), rx1)
             .await
             .expect("r1 timed out")

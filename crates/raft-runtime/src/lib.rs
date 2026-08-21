@@ -4,4 +4,4 @@ pub mod transport;
 
 pub use runner::{Runner, RunnerHandle, ProposeResult, ProposeError};
 pub use transport::{Transport, RunnerInput, RaftMessage};
-pub use observer::Observer;
+pub use observer::{Observer, MetadataApplier};

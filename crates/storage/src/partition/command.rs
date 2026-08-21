@@ -12,6 +12,10 @@ pub enum PartitionCommand {
         acks: Acks,
         done: oneshot::Sender<ProducePartitionResponse>,
     },
+    Truncate {
+        offset: u64,
+        done: oneshot::Sender<()>,
+    },
     UpdateReplicaLeo {
         replica_id: u32,
         leo: u64,

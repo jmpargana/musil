@@ -62,6 +62,12 @@ impl PartitionHandle {
         rx.await.unwrap()
     }
 
+    pub async fn truncate(&self, offset: u64) {
+        let (tx, rx) = oneshot::channel();
+        self.send(PartitionCommand::Truncate { offset, done: tx }).await.unwrap();
+        rx.await.unwrap();
+    }
+
     pub async fn fetch(&self, fetch_req: FetchPartition, replica_id: i32) -> PartitionResponse {
         let res = self.state.load_full().fetch(self.id, fetch_req);
 

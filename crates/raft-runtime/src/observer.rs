@@ -2,13 +2,18 @@ use std::time::Duration;
 
 use tokio::time;
 
-use raft::{FetchRequest, FetchResponse, RaftLog};
+use raft::{FetchRequest, FetchResponse, LogEntry, RaftLog};
 
 use crate::transport::{RaftMessage, Transport};
 
-pub struct Observer<L: RaftLog, T: Transport> {
+pub trait MetadataApplier: Send {
+    fn apply(&mut self, entries: &[LogEntry]);
+}
+
+pub struct Observer<L: RaftLog, T: Transport, M: MetadataApplier> {
     log: L,
     transport: T,
+    applier: M,
     controller_ids: Vec<u16>,
     current_leader: Option<u16>,
     fetch_offset: u64,
@@ -17,10 +22,13 @@ pub struct Observer<L: RaftLog, T: Transport> {
     fetch_interval_ms: u64,
 }
 
-impl<L: RaftLog + Send + 'static, T: Transport + 'static> Observer<L, T> {
+impl<L: RaftLog + Send + 'static, T: Transport + 'static, M: MetadataApplier + 'static>
+    Observer<L, T, M>
+{
     pub fn new(
         log: L,
         transport: T,
+        applier: M,
         controller_ids: Vec<u16>,
         fetch_interval_ms: u64,
     ) -> Self {
@@ -30,6 +38,7 @@ impl<L: RaftLog + Send + 'static, T: Transport + 'static> Observer<L, T> {
         Self {
             log,
             transport,
+            applier,
             controller_ids,
             current_leader: None,
             fetch_offset,
@@ -65,7 +74,6 @@ impl<L: RaftLog + Send + 'static, T: Transport + 'static> Observer<L, T> {
                 .send(target, RaftMessage::FetchRequest(req))
                 .await;
 
-            // Wait for response from transport
             let input = self.transport.recv().await;
             let resp = match input {
                 crate::transport::RunnerInput::NetworkEvent(raft::Event::FetchResponse {
@@ -100,8 +108,12 @@ impl<L: RaftLog + Send + 'static, T: Transport + 'static> Observer<L, T> {
         }
 
         if resp.high_watermark > self.high_watermark {
+            let old_hwm = self.high_watermark;
             self.high_watermark = resp.high_watermark;
-            // TODO: apply committed entries to MetadataImage
+            let committed = self.log.entries(old_hwm, resp.high_watermark);
+            if !committed.is_empty() {
+                self.applier.apply(&committed);
+            }
         }
     }
 }
