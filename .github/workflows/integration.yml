@@ -14,7 +14,7 @@ jobs:
     name: Integration Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -41,7 +41,7 @@ jobs:
           RAFKA_BOOTSTRAP_SERVERS: "localhost:9092,localhost:9093,localhost:9094"
 
       - name: Upload integration coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           files: integration-lcov.info
           flags: integration
