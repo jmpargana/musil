@@ -90,6 +90,8 @@ jobs:
           components: miri
       - uses: Swatinem/rust-cache@v2
       - run: cargo +nightly miri test --workspace
+        env:
+          MIRIFLAGS: "-Zmiri-disable-isolation"
 
   pr-title:
     name: PR Title (Conventional)
