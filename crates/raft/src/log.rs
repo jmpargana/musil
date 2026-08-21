@@ -5,6 +5,16 @@ pub struct LogEntry {
     pub data: Vec<u8>,
 }
 
+impl Default for LogEntry {
+    fn default() -> Self {
+        Self {
+            epoch: Default::default(),
+            offset: Default::default(),
+            data: Default::default(),
+        }
+    }
+}
+
 pub trait RaftLog {
     fn log_end_offset(&self) -> u64;
     fn epoch_at(&self, offset: u64) -> Option<u32>;
@@ -46,7 +56,10 @@ impl RaftLog for VecLog {
     }
 
     fn epoch_at(&self, offset: u64) -> Option<u32> {
-        self.entries.iter().find(|e| e.offset == offset).map(|e| e.epoch)
+        self.entries
+            .iter()
+            .find(|e| e.offset == offset)
+            .map(|e| e.epoch)
     }
 
     fn last_epoch(&self) -> u32 {

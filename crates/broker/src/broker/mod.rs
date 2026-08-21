@@ -11,10 +11,6 @@ use tokio::{
     task::JoinHandle,
 };
 
-use storage::{
-    partition::handle::PartitionHandle,
-    topic::TopicPartition,
-};
 use network::protocol::{
     Frame,
     body::FrameBody,
@@ -29,9 +25,13 @@ use network::protocol::{
         topic_response::ProduceTopicResponse,
     },
 };
+use storage::{partition::handle::PartitionHandle, topic::TopicPartition};
 
 use crate::broker::{
-    actor::MetadataActor, command::MetadataCommand, config::BrokerConfig, state::MetadataImage,
+    actor::MetadataActor,
+    command::MetadataCommand,
+    config::{BrokerConfig, BrokerConfigBuilder},
+    state::MetadataImage,
 };
 
 pub mod actor;
@@ -68,8 +68,6 @@ impl Broker {
     }
 
     pub fn with_partitions(partitions: HashMap<TopicPartition, Arc<PartitionHandle>>) -> Self {
-        use crate::broker::config::BrokerConfigBuilder;
-
         let (tx, _rx) = channel(100);
         let mut image = MetadataImage::empty();
         image.partitions = partitions;
@@ -93,7 +91,10 @@ impl Broker {
         self.state
             .load_full()
             .partitions
-            .get(&TopicPartition { topic_id: topic.to_owned(), partition_id: partition })
+            .get(&TopicPartition {
+                topic_id: topic.to_owned(),
+                partition_id: partition,
+            })
             .cloned()
     }
 
@@ -103,12 +104,17 @@ impl Broker {
             FrameBody::Produce(_) => self.handle_produce(req).await,
             FrameBody::Metadata(_) => self.handle_metadata(req).await,
             FrameBody::Topic(_) => self.handle_create_topics(req).await,
-            _ => Err(io::Error::new(io::ErrorKind::InvalidInput, "unsupported frame type")),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "unsupported frame type",
+            )),
         }
     }
 
     async fn handle_fetch(&self, req: Frame) -> io::Result<Frame> {
-        let FrameBody::Fetch(body) = req.body else { unreachable!() };
+        let FrameBody::Fetch(body) = req.body else {
+            unreachable!()
+        };
         let now = Instant::now();
         let mut topic_responses = Vec::new();
 
@@ -117,11 +123,16 @@ impl Broker {
             for p in t.partitions {
                 let part_res = match self.partition(&t.topic, p.partition as u16) {
                     Some(partition) => partition.fetch(p, body.replica_id).await,
-                    None => PartitionResponse::error(p.partition, ErrorCode::UnknownTopicOrPartition),
+                    None => {
+                        PartitionResponse::error(p.partition, ErrorCode::UnknownTopicOrPartition)
+                    }
                 };
                 part_responses.push(part_res);
             }
-            topic_responses.push(TopicResponse { topic: t.topic.clone(), partitions: part_responses });
+            topic_responses.push(TopicResponse {
+                topic: t.topic.clone(),
+                partitions: part_responses,
+            });
         }
 
         let fetch_response = FetchResponse {
@@ -132,11 +143,17 @@ impl Broker {
         let header = req.header.clone();
         let size = fetch_response.get_size() + header.get_size();
 
-        Ok(Frame { size, header, body: FrameBody::FetchResponse(fetch_response) })
+        Ok(Frame {
+            size,
+            header,
+            body: FrameBody::FetchResponse(fetch_response),
+        })
     }
 
     async fn handle_produce(&self, req: Frame) -> io::Result<Frame> {
-        let FrameBody::Produce(body) = req.body else { unreachable!() };
+        let FrameBody::Produce(body) = req.body else {
+            unreachable!()
+        };
         let now = Instant::now();
         let mut topic_responses = Vec::new();
 
@@ -145,11 +162,17 @@ impl Broker {
             for p in t.partitions {
                 let part_res = match self.partition(&t.topic, p.index as u16) {
                     Some(partition) => partition.append(p.records, body.acks).await,
-                    None => ProducePartitionResponse::error(p.index as u32, ErrorCode::UnknownTopicOrPartition),
+                    None => ProducePartitionResponse::error(
+                        p.index as u32,
+                        ErrorCode::UnknownTopicOrPartition,
+                    ),
                 };
                 part_responses.push(part_res);
             }
-            topic_responses.push(ProduceTopicResponse { topic: t.topic, partition_responses: part_responses });
+            topic_responses.push(ProduceTopicResponse {
+                topic: t.topic,
+                partition_responses: part_responses,
+            });
         }
 
         let header = req.header.clone();
@@ -159,11 +182,17 @@ impl Broker {
         };
         let size = produce_response.get_size() + header.get_size();
 
-        Ok(Frame { size, header, body: FrameBody::ProduceResponse(produce_response) })
+        Ok(Frame {
+            size,
+            header,
+            body: FrameBody::ProduceResponse(produce_response),
+        })
     }
 
     async fn handle_metadata(&self, req: Frame) -> io::Result<Frame> {
-        let FrameBody::Metadata(_body) = req.body else { unreachable!() };
+        let FrameBody::Metadata(_body) = req.body else {
+            unreachable!()
+        };
         let now = Instant::now();
 
         let mut topics: HashMap<String, Vec<PartitionMetadata>> = HashMap::new();
@@ -176,7 +205,11 @@ impl Broker {
             let mut offline = 0;
 
             state.replicas.iter().for_each(|replica| {
-                if replica.is_in_sync { isr += 1; } else { offline += 1; }
+                if replica.is_in_sync {
+                    isr += 1;
+                } else {
+                    offline += 1;
+                }
             });
 
             let pm = PartitionMetadata {
@@ -188,12 +221,19 @@ impl Broker {
                 offline_replicas: offline,
             };
 
-            topics.entry(topic_partition.topic_id.clone()).or_default().push(pm);
+            topics
+                .entry(topic_partition.topic_id.clone())
+                .or_default()
+                .push(pm);
         }
 
         let topics = topics
             .into_iter()
-            .map(|(k, v)| TopicMetadata { partitions: v, error_code: ErrorCode::None, name: k })
+            .map(|(k, v)| TopicMetadata {
+                partitions: v,
+                error_code: ErrorCode::None,
+                name: k,
+            })
             .collect();
 
         let res = MetadataResponse {
@@ -207,15 +247,24 @@ impl Broker {
         let header = req.header.clone();
         let size = header.get_size() + res.get_size();
 
-        Ok(Frame { size, header, body: FrameBody::MetadataResponse(res) })
+        Ok(Frame {
+            size,
+            header,
+            body: FrameBody::MetadataResponse(res),
+        })
     }
 
     async fn handle_create_topics(&self, req: Frame) -> io::Result<Frame> {
-        let FrameBody::Topic(body) = req.body else { unreachable!() };
+        let FrameBody::Topic(body) = req.body else {
+            unreachable!()
+        };
 
         let (done_tx, done_rx) = tokio::sync::oneshot::channel();
         self.tx
-            .send(MetadataCommand::CreateTopic { req: body, done: done_tx })
+            .send(MetadataCommand::CreateTopic {
+                req: body,
+                done: done_tx,
+            })
             .await
             .map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, e.to_string()))?;
 
@@ -226,7 +275,11 @@ impl Broker {
         let header = req.header.clone();
         let size = header.get_size() + res.get_size();
 
-        Ok(Frame { size, header, body: FrameBody::TopicResponse(res) })
+        Ok(Frame {
+            size,
+            header,
+            body: FrameBody::TopicResponse(res),
+        })
     }
 }
 
@@ -236,9 +289,6 @@ mod tests {
 
     use bytes::Bytes;
 
-    use storage::partition::config::PartitionConfigBuilder;
-    use storage::partition::handle::PartitionHandle;
-    use storage::topic::TopicPartition;
     use network::protocol::Frame;
     use network::protocol::body::FrameBody;
     use network::protocol::error_codes::ErrorCode;
@@ -253,6 +303,9 @@ mod tests {
     use network::protocol::produce::response::produce_response::ProduceResponse;
     use proto::record::Record;
     use proto::record_batch::RecordBatch;
+    use storage::partition::config::PartitionConfigBuilder;
+    use storage::partition::handle::PartitionHandle;
+    use storage::topic::TopicPartition;
 
     use super::Broker;
 
@@ -277,7 +330,10 @@ mod tests {
         for (topic, ids) in topics {
             for &id in *ids {
                 partitions.insert(
-                    TopicPartition { topic_id: topic.to_string(), partition_id: id },
+                    TopicPartition {
+                        topic_id: topic.to_string(),
+                        partition_id: id,
+                    },
                     make_partition(dir, topic, id),
                 );
             }
@@ -312,7 +368,10 @@ mod tests {
                 timeout: std::time::Duration::ZERO,
                 topics: vec![ProduceTopic {
                     topic: topic.to_string(),
-                    partitions: vec![ProducePartition { index: partition_id, records: batch }],
+                    partitions: vec![ProducePartition {
+                        index: partition_id,
+                        records: batch,
+                    }],
                 }],
             }),
         }
@@ -461,7 +520,10 @@ mod tests {
         let frame = Frame {
             size: 0,
             header: make_header(ApiKey::Produce),
-            body: FrameBody::ProduceResponse(ProduceResponse { throttle_time_ms: 0, responses: vec![] }),
+            body: FrameBody::ProduceResponse(ProduceResponse {
+                throttle_time_ms: 0,
+                responses: vec![],
+            }),
         };
         assert!(broker.handle(frame).await.is_err());
     }
@@ -563,8 +625,14 @@ mod tests {
                 topics: vec![ProduceTopic {
                     topic: "orders".to_string(),
                     partitions: vec![
-                        ProducePartition { index: 0, records: record_batch(0, b"k0", b"v0") },
-                        ProducePartition { index: 1, records: record_batch(0, b"k1", b"v1") },
+                        ProducePartition {
+                            index: 0,
+                            records: record_batch(0, b"k0", b"v0"),
+                        },
+                        ProducePartition {
+                            index: 1,
+                            records: record_batch(0, b"k1", b"v1"),
+                        },
                     ],
                 }],
             }),

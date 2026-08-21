@@ -36,7 +36,8 @@ pub struct PartitionRecord {
 impl MetadataRecord {
     pub fn encode(&self) -> Vec<u8> {
         let mut buf = Vec::new();
-        match &self {
+
+        match self {
             MetadataRecord::Topic(t) => {
                 buf.push(MetadataRecordType::Topic as u8);
                 buf.extend_from_slice(&(t.name.len() as u16).to_be_bytes());
@@ -58,8 +59,13 @@ impl MetadataRecord {
     }
 
     pub fn decode(buf: &[u8]) -> Option<Self> {
-        let kind = MetadataRecordType::try_from(*buf.first()?).ok()?;
+        if buf.is_empty() {
+            return None;
+        }
+
+        let kind = MetadataRecordType::try_from(buf[0]).ok()?;
         let buf = &buf[1..];
+
         match kind {
             MetadataRecordType::Topic => {
                 let name_len = u16::from_be_bytes(buf[..2].try_into().ok()?) as usize;
@@ -68,17 +74,13 @@ impl MetadataRecord {
             }
             MetadataRecordType::Partition => {
                 let mut pos = 0;
-                let topic_id_len =
-                    u16::from_be_bytes(buf[pos..pos + 2].try_into().ok()?) as usize;
+                let topic_id_len = u16::from_be_bytes(buf[pos..pos + 2].try_into().ok()?) as usize;
                 pos += 2;
-                let topic_id =
-                    String::from_utf8(buf[pos..pos + topic_id_len].to_vec()).ok()?;
+                let topic_id = String::from_utf8(buf[pos..pos + topic_id_len].to_vec()).ok()?;
                 pos += topic_id_len;
-                let partition_id =
-                    u16::from_be_bytes(buf[pos..pos + 2].try_into().ok()?);
+                let partition_id = u16::from_be_bytes(buf[pos..pos + 2].try_into().ok()?);
                 pos += 2;
-                let replicas_len =
-                    u16::from_be_bytes(buf[pos..pos + 2].try_into().ok()?) as usize;
+                let replicas_len = u16::from_be_bytes(buf[pos..pos + 2].try_into().ok()?) as usize;
                 pos += 2;
                 let mut replicas = Vec::with_capacity(replicas_len);
                 for _ in 0..replicas_len {

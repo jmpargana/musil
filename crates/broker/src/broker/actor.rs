@@ -1,12 +1,6 @@
-use core::time;
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::{Instant, SystemTime, UNIX_EPOCH},
-};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use arc_swap::ArcSwap;
-use bytes::Bytes;
 use tokio::sync::mpsc;
 
 use network::protocol::{
@@ -23,6 +17,8 @@ use crate::broker::{
     state::MetadataImage,
 };
 
+const INITIAL_EPOCH: i32 = 0;
+
 pub struct MetadataActor {
     rx: mpsc::Receiver<MetadataCommand>,
     snapshot: Arc<ArcSwap<MetadataImage>>,
@@ -30,8 +26,10 @@ pub struct MetadataActor {
     handle: Arc<PartitionHandle>,
 }
 
-fn metadata_batch(metadata_record: MetadataRecord, timestamp: u64) -> RecordBatch {
-    vec![Record::new(0, b"", &metadata_record.encode())].into()
+fn metadata_batch(metadata_record: MetadataRecord, epoch: i32) -> RecordBatch {
+    let mut batch: RecordBatch = vec![Record::new(0, b"", &metadata_record.encode())].into();
+    batch.partition_leader_epoch = epoch;
+    batch
 }
 
 impl MetadataActor {
@@ -105,8 +103,6 @@ impl MetadataActor {
 
                     let mut topic_responses = Vec::new();
                     for t in req.topics {
-                        let ts = now.elapsed().as_millis() as u64;
-
                         let topic = TopicRecord {
                             name: t.name.clone(),
                         };
@@ -126,7 +122,7 @@ impl MetadataActor {
                                     MetadataRecord::Topic(TopicRecord {
                                         name: t.name.clone(),
                                     }),
-                                    ts,
+                                    INITIAL_EPOCH,
                                 ),
                                 Acks::None,
                             )
@@ -142,7 +138,7 @@ impl MetadataActor {
                                             replicas: p.replicas.clone(),
                                             leader: p.leader,
                                         }),
-                                        ts,
+                                        INITIAL_EPOCH,
                                     ),
                                     Acks::None,
                                 )
