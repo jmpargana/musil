@@ -1,0 +1,25 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      patch-updates:
+        update-types:
+          - "patch"
+      minor-updates:
+        update-types:
+          - "minor"
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns:
+          - "*"

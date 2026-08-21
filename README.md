@@ -1,27 +1,58 @@
 # rafka
 
-## TODO:
-- [ ] gzip
-- [ ] Formatting enum
+[![CI](https://github.com/jmpargana/rafka/actions/workflows/ci.yml/badge.svg)](https://github.com/jmpargana/rafka/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/jmpargana/rafka/branch/main/graph/badge.svg)](https://codecov.io/gh/jmpargana/rafka)
+[![crates.io](https://img.shields.io/crates/v/rafka-proto.svg)](https://crates.io/crates/rafka-proto)
+[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE-MIT)
 
-```rs
-enum Format {
-    Json,
-    Hex,
-    Text,
-    Verbose
-}
+A Kafka-compatible message broker implemented in Rust.
 
-struct PacketDisplay {
-    buf: Vec<u8>,
-    format: Format
-}
+## Components
 
-impl std::fmt::Display for PacketDisplay {
-    fn fmt(&self, &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.format {
-            Format::Json => {}
-        }
-    }
-}
+| Binary | Description |
+|--------|-------------|
+| `server` | Broker node (supports raft consensus or standalone mode) |
+| `consumer` | CLI consumer client |
+| `producer` | CLI producer client |
+| `seeder` | Topic/partition seeder utility |
+
+## Quick Start
+
+```bash
+# Install tools
+mise install
+
+# Build
+just build
+
+# Run tests
+just test
+
+# Start local cluster (3 brokers + seeder)
+just compose-up
+
+# Run integration tests
+just integration-test
 ```
+
+## Development
+
+```bash
+# Lint + format + test
+just check
+
+# Coverage report
+just coverage-html
+
+# Security audit
+just audit
+just deny
+```
+
+## License
+
+Licensed under either of:
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT License ([LICENSE-MIT](LICENSE-MIT))
+
+at your option.
