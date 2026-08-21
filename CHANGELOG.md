@@ -55,4 +55,5 @@
 * resolve CI failures across all workflow jobs ([04e6225](https://github.com/jmpargana/musil/commit/04e62255b75fbaf254139e577635127f4319fef7))
 * resolve release-please workspace version parsing failure ([91e6216](https://github.com/jmpargana/musil/commit/91e6216984dfa0ddfcd3ef59b6af6c3baedbb6fe))
 * single byte representation to batch and record ([ab07ef5](https://github.com/jmpargana/musil/commit/ab07ef531afffaa3e0d0a37e65e06ff3a0305ffe))
+* use PAT_TOKEN for release-please PR creation ([1785a2b](https://github.com/jmpargana/musil/commit/1785a2bf3901ae5879033a39eeaed0ffd9c5b293))
 * working rcu ([7861df9](https://github.com/jmpargana/musil/commit/7861df908783a73bb23496e9005de81348ed2969))
