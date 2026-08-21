@@ -4,7 +4,14 @@
   "packages": {
     ".": {
       "component": "musil",
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.package.version"
+        }
+      ]
     }
   },
   "bump-minor-pre-major": true,
