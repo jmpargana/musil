@@ -1,2 +1,6 @@
 target
 data*
+Cargo.lock
+*.profraw
+lcov.info
+coverage/
