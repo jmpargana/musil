@@ -33,13 +33,13 @@ serde_json = "1"
 tokio = { version = "1.52.3", features = ["full"] }
 tracing = "0.1.44"
 broker = { path = "crates/broker" }
-network = { path = "crates/network" }
-proto = { path = "crates/proto" }
-storage = { path = "crates/storage" }
+network = { path = "crates/network", version = "0.1.0" }
+proto = { path = "crates/proto", version = "0.1.0" }
+storage = { path = "crates/storage", version = "0.1.0" }
 crc-fast = "1.10.0"
 tokio-stream = "0.1.19"
 async-trait = "0.1.92"
-raft = { path = "crates/raft" }
+raft = { path = "crates/raft", version = "0.1.0" }
 
 [dependencies]
 broker = { path = "crates/broker" }

@@ -7,7 +7,7 @@ repository.workspace = true
 description = "Log-structured storage engine for rafka"
 
 [dependencies]
-proto = { path = "../proto" }
+proto = { path = "../proto", version = "0.1.0" }
 arc-swap = "1"
 bytes = "1"
 derive_builder = "0.20"
