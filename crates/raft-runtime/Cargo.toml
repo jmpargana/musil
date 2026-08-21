@@ -1,7 +1,10 @@
 [package]
 name = "raft-runtime"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Async runtime for rafka raft consensus"
 
 [dependencies]
 raft.workspace = true
