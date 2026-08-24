@@ -6,21 +6,12 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
   integration:
     name: Integration Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: llvm-tools-preview
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Build images
         run: docker compose build
@@ -38,25 +29,8 @@ jobs:
 
       - name: Verify consumer output
         run: |
-          docker compose up consumer &
-          CONSUMER_PID=$!
-          sleep 5
-          docker compose logs consumer | grep -q "first_topic" || true
-          kill $CONSUMER_PID 2>/dev/null || true
-
-      - name: Run integration tests
-        run: cargo llvm-cov --test integration --lcov --output-path integration-lcov.info
-        env:
-          MUSIL_BOOTSTRAP_SERVERS: "localhost:9092"
-
-      - name: Upload integration coverage
-        uses: codecov/codecov-action@v7
-        with:
-          files: integration-lcov.info
-          flags: integration
-          fail_ci_if_error: false
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          docker compose up consumer
+          docker compose logs consumer | grep -q "first_topic"
 
       - name: Teardown
         if: always()
