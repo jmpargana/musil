@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/jmpargana/musil/compare/musil-v0.1.2...musil-v0.1.3) (2026-08-24)
+
+
+### Features
+
+* add codecov config (20% threshold) and crate badges ([ea7436d](https://github.com/jmpargana/musil/commit/ea7436dfaa01c59fce31e87f4ce7edaf6f224e19))
+
 ## [0.1.2](https://github.com/jmpargana/musil/compare/musil-v0.1.1...musil-v0.1.2) (2026-08-24)
 
 
