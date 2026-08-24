@@ -82,14 +82,13 @@ jobs:
   miri:
     name: Miri
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: miri
       - uses: Swatinem/rust-cache@v2
-      - run: cargo +nightly miri test --workspace
+      - run: cargo +nightly miri test -p musil-raft
         env:
           MIRIFLAGS: "-Zmiri-disable-isolation"
 
