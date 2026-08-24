@@ -1,5 +1,5 @@
 [package]
-name = "broker"
+name = "musil-broker"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,9 +12,9 @@ raft = []
 standalone = []
 
 [dependencies]
-storage = { path = "../storage" }
-network = { path = "../network" }
-proto = { path = "../proto" }
+storage = { package = "musil-storage", path = "../storage" }
+network = { package = "musil-network", path = "../network" }
+proto = { package = "musil-proto", path = "../proto" }
 arc-swap = "1"
 bytes = "1"
 derive_builder = "0.20"

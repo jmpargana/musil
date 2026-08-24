@@ -1,5 +1,5 @@
 [package]
-name = "storage"
+name = "musil-storage"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,7 +7,7 @@ repository.workspace = true
 description = "Log-structured storage engine for musil"
 
 [dependencies]
-proto = { path = "../proto", version = "0.1.0" }
+proto = { package = "musil-proto", path = "../proto", version = "0.1.0" }
 arc-swap = "1"
 bytes = "1"
 derive_builder = "0.20"
@@ -15,7 +15,7 @@ memmap = "0.7"
 rand = "0.10"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
-raft.workspace = true
+raft = { workspace = true }
 
 [dev-dependencies]
 tempdir = "0.3"

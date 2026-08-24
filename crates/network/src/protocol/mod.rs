@@ -1,5 +1,5 @@
 use bytes::{BufMut, Bytes, BytesMut};
-use rand::Rng;
+use rand::RngExt;
 
 use crate::protocol::{
     body::FrameBody,

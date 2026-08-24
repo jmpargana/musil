@@ -1,5 +1,5 @@
 [package]
-name = "consumer"
+name = "musil-consumer"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,7 +8,7 @@ publish = false
 
 [dependencies]
 tokio.workspace = true
-network.workspace = true
-proto.workspace = true
+network = { workspace = true }
+proto = { workspace = true }
 derive_builder.workspace = true
 dashmap = "6.2.1"

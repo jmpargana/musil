@@ -1,5 +1,5 @@
 [package]
-name = "raft-runtime"
+name = "musil-raft-runtime"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,7 +7,7 @@ repository.workspace = true
 description = "Async runtime for musil raft consensus"
 
 [dependencies]
-raft.workspace = true
+raft = { workspace = true }
 tokio.workspace = true
 async-trait.workspace = true
 tracing.workspace = true

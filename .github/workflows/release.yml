@@ -130,7 +130,7 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          for crate in proto raft network storage raft-runtime; do
+          for crate in musil-proto musil-raft musil-network musil-storage musil-raft-runtime; do
             echo "Publishing ${crate}..."
             cargo publish -p ${crate} --allow-dirty
             sleep 30  # wait for crates.io index to update
