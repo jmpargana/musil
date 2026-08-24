@@ -7,6 +7,7 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 struct ControllerConfig {
     controller: BrokerConfig,
+    #[serde(default)]
     brokers: Vec<BrokerConfig>,
 }
 
