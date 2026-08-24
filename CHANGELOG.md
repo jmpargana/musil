@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.2](https://github.com/jmpargana/musil/compare/musil-v0.1.1...musil-v0.1.2) (2026-08-24)
+
+
+### Bug Fixes
+
+* broker config deserialization for standalone mode ([7a9244b](https://github.com/jmpargana/musil/commit/7a9244b67cafbd1b64f826fbde6f3f8f829f0656))
+* integration test hangs on consumer (long-running process) ([440299b](https://github.com/jmpargana/musil/commit/440299b79b64ba6d439e808944b720fc3bbc158b))
+* prefix all crate names with musil- to avoid crates.io conflicts ([6a3f40d](https://github.com/jmpargana/musil/commit/6a3f40d1492035117a27539013ce5297d2ecba70))
+* remove non-existent integration test target from CI ([57ca581](https://github.com/jmpargana/musil/commit/57ca581c567c18b61d424e83255d4371ae0d86cb))
+* scope miri to musil-raft only, remove continue-on-error ([014f87a](https://github.com/jmpargana/musil/commit/014f87a1ec9fff8c7ffa433a025220a7ea05e9c2))
+* simplify docker-compose to single broker for integration tests ([49c471a](https://github.com/jmpargana/musil/commit/49c471a1cf71deb560cfdd7f99219900296d1e9c))
+* update integration test imports and add audit.toml ([f024176](https://github.com/jmpargana/musil/commit/f0241762a2eb7f57da226ac51e9d4b4bb60d25b5))
+* update README badges to working URLs ([64ccf17](https://github.com/jmpargana/musil/commit/64ccf17ee907407963b9012ecef7bb9b3e310d23))
+
 ## [0.1.1](https://github.com/jmpargana/musil/compare/musil-v0.1.0...musil-v0.1.1) (2026-08-21)
 
 
