@@ -9,39 +9,30 @@
 [![codecov](https://codecov.io/gh/jmpargana/musil/branch/main/graph/badge.svg)](https://codecov.io/gh/jmpargana/musil)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE-MIT)
 
-| Crate | Version |
-|-------|---------|
-| musil-proto | [![crates.io](https://img.shields.io/crates/v/musil-proto)](https://crates.io/crates/musil-proto) |
-| musil-raft | [![crates.io](https://img.shields.io/crates/v/musil-raft)](https://crates.io/crates/musil-raft) |
-| musil-network | [![crates.io](https://img.shields.io/crates/v/musil-network)](https://crates.io/crates/musil-network) |
-| musil-storage | [![crates.io](https://img.shields.io/crates/v/musil-storage)](https://crates.io/crates/musil-storage) |
-| musil-raft-runtime | [![crates.io](https://img.shields.io/crates/v/musil-raft-runtime)](https://crates.io/crates/musil-raft-runtime) |
-
 A partially* Kafka-compatible broker, producer, consumer and seeder implemented in Rust.
 
 KRaft controller implementation in progress.
 
-## Components
+## Packages
 
-| Binary | Description |
-|--------|-------------|
-| `server` | Broker node (supports raft consensus or standalone mode) |
-| `consumer` | CLI consumer client |
-| `producer` | CLI producer client |
-| `seeder` | Topic/partition seeder utility |
+| Package | crates.io | Homebrew |
+|---------|-----------|----------|
+| musil-proto | [![crates.io](https://img.shields.io/crates/v/musil-proto)](https://crates.io/crates/musil-proto) | — |
+| musil-raft | [![crates.io](https://img.shields.io/crates/v/musil-raft)](https://crates.io/crates/musil-raft) | — |
+| musil-network | [![crates.io](https://img.shields.io/crates/v/musil-network)](https://crates.io/crates/musil-network) | — |
+| musil-storage | [![crates.io](https://img.shields.io/crates/v/musil-storage)](https://crates.io/crates/musil-storage) | — |
+| musil-raft-runtime | [![crates.io](https://img.shields.io/crates/v/musil-raft-runtime)](https://crates.io/crates/musil-raft-runtime) | — |
+| musil-broker | — | [![homebrew](https://img.shields.io/badge/brew-musil--broker-orange)](https://github.com/jmpargana/homebrew-tools/blob/main/Formula/musil-broker.rb) |
+| musil-producer | — | [![homebrew](https://img.shields.io/badge/brew-musil--producer-orange)](https://github.com/jmpargana/homebrew-tools/blob/main/Formula/musil-producer.rb) |
+| musil-consumer | — | [![homebrew](https://img.shields.io/badge/brew-musil--consumer-orange)](https://github.com/jmpargana/homebrew-tools/blob/main/Formula/musil-consumer.rb) |
+| musil-seeder | — | [![homebrew](https://img.shields.io/badge/brew-musil--seeder-orange)](https://github.com/jmpargana/homebrew-tools/blob/main/Formula/musil-seeder.rb) |
 
 ## Install
 
 ```bash
 brew tap jmpargana/tools
+brew install musil-broker musil-producer musil-consumer musil-seeder
 ```
-
-| Formula | Install |
-|---------|---------|
-| musil-broker | `brew install jmpargana/tools/musil-broker` |
-| musil-producer | `brew install jmpargana/tools/musil-producer` |
-| musil-consumer | `brew install jmpargana/tools/musil-consumer` |
-| musil-seeder | `brew install jmpargana/tools/musil-seeder` |
 
 ## Quick Start
 

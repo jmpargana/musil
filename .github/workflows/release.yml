@@ -29,7 +29,7 @@ jobs:
         if: steps.release.outputs.pr
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: gh pr merge ${{ fromJSON(steps.release.outputs.pr).number }} --auto --squash
+        run: gh pr merge ${{ fromJSON(steps.release.outputs.pr).number }} --auto --squash -R ${{ github.repository }}
 
   build-binaries:
     name: Build (${{ matrix.target }})
