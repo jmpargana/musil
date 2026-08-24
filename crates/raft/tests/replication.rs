@@ -1,4 +1,4 @@
-use raft::*;
+use musil_raft::*;
 
 pub struct TestLog {
     entries: Vec<LogEntry>,
