@@ -4,9 +4,8 @@
 
 # musil
 
-[![CI](https://github.com/jmpargana/musil/actions/workflows/ci.yml/badge.svg)](https://github.com/jmpargana/musil/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/jmpargana/musil/branch/main/graph/badge.svg)](https://codecov.io/gh/jmpargana/musil)
-[![crates.io](https://img.shields.io/crates/v/musil-proto.svg)](https://crates.io/crates/musil-proto)
+[![CI](https://github.com/jmpargana/musil/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jmpargana/musil/actions/workflows/ci.yml)
+[![Integration](https://github.com/jmpargana/musil/actions/workflows/integration.yml/badge.svg?branch=main)](https://github.com/jmpargana/musil/actions/workflows/integration.yml)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE-MIT)
 
 A partially* Kafka-compatible broker, producer, consumer and seeder implemented in Rust.
