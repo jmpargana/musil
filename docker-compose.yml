@@ -37,7 +37,7 @@ services:
       context: .
       args:
         BINARY: producer
-    command: ["-b", "broker:9092", "-t", "first_topic"]
+    command: ["-b", "broker:9092", "-t", "first_topic", "-v", "integration-test-message"]
     depends_on:
       seeder:
         condition: service_completed_successfully
