@@ -11,11 +11,11 @@
 
 | Crate | Version |
 |-------|---------|
-| musil-proto | [![crates.io](https://img.shields.io/crates/v/musil-proto.svg)](https://crates.io/crates/musil-proto) |
-| musil-raft | [![crates.io](https://img.shields.io/crates/v/musil-raft.svg)](https://crates.io/crates/musil-raft) |
-| musil-network | [![crates.io](https://img.shields.io/crates/v/musil-network.svg)](https://crates.io/crates/musil-network) |
-| musil-storage | [![crates.io](https://img.shields.io/crates/v/musil-storage.svg)](https://crates.io/crates/musil-storage) |
-| musil-raft-runtime | [![crates.io](https://img.shields.io/crates/v/musil-raft-runtime.svg)](https://crates.io/crates/musil-raft-runtime) |
+| musil-proto | [![crates.io](https://img.shields.io/crates/v/musil-proto)](https://crates.io/crates/musil-proto) |
+| musil-raft | [![crates.io](https://img.shields.io/crates/v/musil-raft)](https://crates.io/crates/musil-raft) |
+| musil-network | [![crates.io](https://img.shields.io/crates/v/musil-network)](https://crates.io/crates/musil-network) |
+| musil-storage | [![crates.io](https://img.shields.io/crates/v/musil-storage)](https://crates.io/crates/musil-storage) |
+| musil-raft-runtime | [![crates.io](https://img.shields.io/crates/v/musil-raft-runtime)](https://crates.io/crates/musil-raft-runtime) |
 
 A partially* Kafka-compatible broker, producer, consumer and seeder implemented in Rust.
 
@@ -29,6 +29,19 @@ KRaft controller implementation in progress.
 | `consumer` | CLI consumer client |
 | `producer` | CLI producer client |
 | `seeder` | Topic/partition seeder utility |
+
+## Install
+
+```bash
+brew tap jmpargana/tools
+```
+
+| Formula | Install |
+|---------|---------|
+| musil-broker | `brew install jmpargana/tools/musil-broker` |
+| musil-producer | `brew install jmpargana/tools/musil-producer` |
+| musil-consumer | `brew install jmpargana/tools/musil-consumer` |
+| musil-seeder | `brew install jmpargana/tools/musil-seeder` |
 
 ## Quick Start
 

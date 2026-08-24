@@ -123,6 +123,38 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  update-homebrew:
+    name: Update Homebrew Formulas
+    needs: [release-please, build-binaries]
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/checkout@v7
+        with:
+          repository: jmpargana/homebrew-tools
+          token: ${{ secrets.PAT_TOKEN }}
+          path: homebrew-tools
+
+      - name: Generate formulas
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.release-please.outputs.version }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: bash .github/scripts/generate-formulas.sh
+
+      - name: Push formulas
+        working-directory: homebrew-tools
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/
+          git commit -m "musil ${VERSION}: update formulas" || exit 0
+          git push
+
   publish-crates:
     name: Publish Crates
     needs: release-please
