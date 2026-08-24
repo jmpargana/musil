@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.4](https://github.com/jmpargana/musil/compare/musil-v0.1.3...musil-v0.1.4) (2026-08-24)
+
+
+### Features
+
+* add homebrew formula generation to release pipeline ([d17dc1b](https://github.com/jmpargana/musil/commit/d17dc1b77ba521d116da49315a5f0c13792ad583))
+
+
+### Bug Fixes
+
+* auto-merge needs -R flag and unify packages table in README ([b05dd33](https://github.com/jmpargana/musil/commit/b05dd3355d3e15cec58012c7b0db783e84aad539))
+
 ## [0.1.3](https://github.com/jmpargana/musil/compare/musil-v0.1.2...musil-v0.1.3) (2026-08-24)
 
 
