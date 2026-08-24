@@ -1,5 +1,5 @@
 services:
-  broker-1:
+  broker:
     build:
       context: .
       args:
@@ -8,46 +8,8 @@ services:
     ports:
       - "9092:9092"
     volumes:
-      - broker1-data:/data
-      - ./compose/broker-1.toml:/etc/musil/server.toml:ro
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 9092 || exit 1"]
-      interval: 2s
-      timeout: 5s
-      retries: 10
-    networks:
-      - musil
-
-  broker-2:
-    build:
-      context: .
-      args:
-        BINARY: server
-    command: ["-p", "/data", "-c", "/etc/musil/server.toml"]
-    ports:
-      - "9093:9092"
-    volumes:
-      - broker2-data:/data
-      - ./compose/broker-2.toml:/etc/musil/server.toml:ro
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 9092 || exit 1"]
-      interval: 2s
-      timeout: 5s
-      retries: 10
-    networks:
-      - musil
-
-  broker-3:
-    build:
-      context: .
-      args:
-        BINARY: server
-    command: ["-p", "/data", "-c", "/etc/musil/server.toml"]
-    ports:
-      - "9094:9092"
-    volumes:
-      - broker3-data:/data
-      - ./compose/broker-3.toml:/etc/musil/server.toml:ro
+      - broker-data:/data
+      - ./compose/standalone.toml:/etc/musil/server.toml:ro
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost 9092 || exit 1"]
       interval: 2s
@@ -61,15 +23,11 @@ services:
       context: .
       args:
         BINARY: seeder
-    command: ["-b", "broker-1:9092,broker-2:9092,broker-3:9092", "-f", "/etc/musil/seeder.toml"]
+    command: ["-b", "broker:9092", "-f", "/etc/musil/seeder.toml"]
     volumes:
       - ./seeder.toml:/etc/musil/seeder.toml:ro
     depends_on:
-      broker-1:
-        condition: service_healthy
-      broker-2:
-        condition: service_healthy
-      broker-3:
+      broker:
         condition: service_healthy
     networks:
       - musil
@@ -79,7 +37,7 @@ services:
       context: .
       args:
         BINARY: producer
-    command: ["-b", "broker-1:9092,broker-2:9092,broker-3:9092", "-t", "first_topic"]
+    command: ["-b", "broker:9092", "-t", "first_topic"]
     depends_on:
       seeder:
         condition: service_completed_successfully
@@ -91,17 +49,15 @@ services:
       context: .
       args:
         BINARY: consumer
-    command: ["-b", "broker-1:9092,broker-2:9092,broker-3:9092", "-t", "first_topic", "-o", "0"]
+    command: ["-b", "broker:9092", "-t", "first_topic", "-o", "0"]
     depends_on:
-      seeder:
+      producer:
         condition: service_completed_successfully
     networks:
       - musil
 
 volumes:
-  broker1-data:
-  broker2-data:
-  broker3-data:
+  broker-data:
 
 networks:
   musil:
