@@ -32,21 +32,21 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1.52.3", features = ["full"] }
 tracing = "0.1.44"
-broker = { path = "crates/broker" }
-network = { path = "crates/network", version = "0.1.0" }
-proto = { path = "crates/proto", version = "0.1.0" }
-storage = { path = "crates/storage", version = "0.1.0" }
+broker = { package = "musil-broker", path = "crates/broker" }
+network = { package = "musil-network", path = "crates/network", version = "0.1.0" }
+proto = { package = "musil-proto", path = "crates/proto", version = "0.1.0" }
+storage = { package = "musil-storage", path = "crates/storage", version = "0.1.0" }
 crc-fast = "1.10.0"
 tokio-stream = "0.1.19"
 async-trait = "0.1.92"
-raft = { path = "crates/raft", version = "0.1.0" }
+raft = { package = "musil-raft", path = "crates/raft", version = "0.1.0" }
 
 [dependencies]
-broker = { path = "crates/broker" }
-network = { path = "crates/network" }
-storage = { path = "crates/storage" }
-producer = { path = "crates/producer" }
-consumer = { path = "crates/consumer" }
+broker = { package = "musil-broker", path = "crates/broker" }
+network = { package = "musil-network", path = "crates/network" }
+storage = { package = "musil-storage", path = "crates/storage" }
+producer = { package = "musil-producer", path = "crates/producer" }
+consumer = { package = "musil-consumer", path = "crates/consumer" }
 bytes = "1"
 clap = { version = "4", features = ["derive"] }
 config = "0.14"

@@ -1,5 +1,5 @@
 [package]
-name = "producer"
+name = "musil-producer"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,9 +10,9 @@ publish = false
 tokio.workspace = true
 murmur2.workspace = true
 rand.workspace = true
-storage.workspace = true
-network = { path = "../network" }
-proto = { path = "../proto" }
+storage = { workspace = true }
+network = { package = "musil-network", path = "../network" }
+proto = { package = "musil-proto", path = "../proto" }
 derive_builder.workspace = true
 bytes.workspace = true
 tracing.workspace = true
