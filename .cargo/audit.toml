@@ -1,0 +1,6 @@
+[advisories]
+ignore = [
+    "RUSTSEC-2020-0077", # memmap is unmaintained
+    "RUSTSEC-2023-0018", # remove_dir_all (via tempdir, dev-only)
+    "RUSTSEC-2018-0017", # tempdir is deprecated
+]

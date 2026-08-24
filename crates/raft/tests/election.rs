@@ -1,4 +1,4 @@
-use raft::*;
+use musil_raft::*;
 
 fn three_node_follower() -> Node<TestLog> {
     Node::new(1, vec![1, 2, 3], QuorumState::empty(), TestLog::new())
