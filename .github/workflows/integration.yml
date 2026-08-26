@@ -16,6 +16,9 @@ jobs:
       - name: Build images
         run: docker compose build
 
+      - name: Verify unified CLI image builds
+        run: docker build --build-arg BINARY=musil -t musil-cli-test .
+
       - name: Start broker
         run: |
           docker compose up -d broker

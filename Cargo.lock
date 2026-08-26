@@ -654,7 +654,7 @@ dependencies = [
 
 [[package]]
 name = "musil-broker"
-version = "0.1.1"
+version = "0.1.4"
 dependencies = [
  "arc-swap",
  "bytes",
@@ -670,7 +670,7 @@ dependencies = [
 
 [[package]]
 name = "musil-consumer"
-version = "0.1.1"
+version = "0.1.4"
 dependencies = [
  "dashmap",
  "derive_builder",
@@ -681,7 +681,7 @@ dependencies = [
 
 [[package]]
 name = "musil-network"
-version = "0.1.1"
+version = "0.1.4"
 dependencies = [
  "bytes",
  "derive_builder",
@@ -695,7 +695,7 @@ dependencies = [
 
 [[package]]
 name = "musil-producer"
-version = "0.1.1"
+version = "0.1.4"
 dependencies = [
  "bytes",
  "derive_builder",
@@ -710,7 +710,7 @@ dependencies = [
 
 [[package]]
 name = "musil-proto"
-version = "0.1.1"
+version = "0.1.4"
 dependencies = [
  "bytes",
  "crc-fast",
@@ -720,7 +720,7 @@ dependencies = [
 
 [[package]]
 name = "musil-raft"
-version = "0.1.1"
+version = "0.1.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -728,7 +728,7 @@ dependencies = [
 
 [[package]]
 name = "musil-raft-runtime"
-version = "0.1.1"
+version = "0.1.4"
 dependencies = [
  "async-trait",
  "musil-raft",
@@ -738,7 +738,7 @@ dependencies = [
 
 [[package]]
 name = "musil-storage"
-version = "0.1.1"
+version = "0.1.4"
 dependencies = [
  "arc-swap",
  "bytes",

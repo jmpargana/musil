@@ -67,7 +67,7 @@ jobs:
 
       - name: Build binaries
         run: |
-          for bin in server consumer producer seeder; do
+          for bin in server consumer producer seeder musil; do
             cargo build --release --target ${{ matrix.target }} --bin ${bin}
           done
 
@@ -76,7 +76,7 @@ jobs:
         run: |
           VERSION=${{ needs.release-please.outputs.version }}
           TARGET=${{ matrix.target }}
-          for bin in server consumer producer seeder; do
+          for bin in server consumer producer seeder musil; do
             ARCHIVE="musil-${bin}-${VERSION}-${TARGET}.tar.gz"
             tar -czf "${ARCHIVE}" -C target/${TARGET}/release ${bin}
             echo "${ARCHIVE}" >> artifacts.txt
@@ -96,7 +96,7 @@ jobs:
     if: needs.release-please.outputs.release_created == 'true'
     strategy:
       matrix:
-        binary: [server, consumer, producer, seeder]
+        binary: [server, consumer, producer, seeder, musil]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

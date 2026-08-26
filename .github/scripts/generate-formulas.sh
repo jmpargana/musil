@@ -8,12 +8,14 @@ FORMULA_MAP[server]="musil-broker"
 FORMULA_MAP[producer]="musil-producer"
 FORMULA_MAP[consumer]="musil-consumer"
 FORMULA_MAP[seeder]="musil-seeder"
+FORMULA_MAP[musil]="musil"
 
 declare -A DESC_MAP
 DESC_MAP[server]="Kafka-compatible message broker"
 DESC_MAP[producer]="CLI producer client for musil"
 DESC_MAP[consumer]="CLI consumer client for musil"
 DESC_MAP[seeder]="Topic/partition seeder for musil"
+DESC_MAP[musil]="Kafka-compatible message broker and CLI toolkit"
 
 TARGETS=(
   "x86_64-apple-darwin"
@@ -24,7 +26,7 @@ TARGETS=(
 
 mkdir -p homebrew-tools/Formula
 
-for bin in server producer consumer seeder; do
+for bin in server producer consumer seeder musil; do
   FORMULA_NAME="${FORMULA_MAP[$bin]}"
   CLASS_NAME=$(echo "$FORMULA_NAME" | sed 's/-/_/g' | sed 's/\(^\|_\)\([a-z]\)/\U\2/g')
   DESC="${DESC_MAP[$bin]}"
